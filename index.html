@@ -143,12 +143,12 @@ video::cue{font-size:1.1em;background:rgba(0,0,0,.65);color:#fff}
 .seg{top:10px}.seg i{height:3px}
 h2.sec{font-size:17px;margin:20px 0 10px}
 .sec-row{margin:20px 0 10px}.sec-row h2{font-size:17px}
-.rail{grid-auto-columns:clamp(100px,29vw,160px);gap:10px;padding-bottom:4px}
-.grid{grid-template-columns:repeat(auto-fill,minmax(clamp(96px,28vw,150px),1fr));gap:10px}
+.rail{grid-auto-columns:clamp(132px,40vw,200px);gap:12px;padding-bottom:4px}
+.grid{grid-template-columns:repeat(auto-fill,minmax(clamp(150px,44vw,220px),1fr));gap:12px}
 .card{border-radius:12px}
-.t{padding:6px 8px 8px;font-size:12px;font-weight:600;line-height:1.25}
-.rt{top:5px;right:5px;font-size:10px;padding:2px 5px;border-radius:6px}
-.skc{height:clamp(150px,44vw,240px)}
+.t{padding:8px 10px 10px;font-size:14px;font-weight:600;line-height:1.3}
+.rt{top:6px;right:6px;font-size:12px;padding:3px 7px;border-radius:7px}.bd{font-size:11px}
+.skc{height:clamp(200px,58vw,300px)}
 .top h1{font-size:22px}
 .fsb{position:absolute;z-index:3;top:calc(10px + env(safe-area-inset-top));right:calc(10px + env(safe-area-inset-right));width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#fff;display:flex;align-items:center;justify-content:center;padding:0;transition:opacity .25s}
 .fsb:active{transform:scale(.92)}
@@ -333,7 +333,8 @@ function tabBar(){if(!TABS.length)return null;
   return h("div",{class:"cats toptabs"},TABS.map((t,k)=>h("button",{class:"cat"+((TAB===""&&k===0)||(TAB&&TAB===t.id)?" on":""),onclick:()=>{TAB=k===0?"":(t.id||"");home()}},t.name)))}
 const moreOf=s=>{const m=s.more||{};return{id:String(m.rankingId||m.rankId||m.id||m.opId||""),url:m.url||m.jumpUrl||m.path||m.link||"",title:s.section}};
 const hasMore=s=>{const m=s.more||{};return!!(m.rankingId||m.rankId||m.id||m.opId||m.url||m.jumpUrl||m.path||m.link)||s.items.length>=9};
-function secBlock(s){SEC[s.section]=s.items;
+const SECT={};
+function secBlock(s){SEC[s.section]=s.items;SECT[s.section]=s.tabs||[];
   const head=h("div",{class:"sec-row"},h("h2",{},s.section),hasMore(s)?h("button",{class:"all",onclick:()=>go("#/all/"+encodeURIComponent(JSON.stringify(moreOf(s))))},"All ›"):null),
     box=h("div",{},railBox(s.items.slice(0,20))),out=[head];
   if(s.tabs&&s.tabs.length){const strip=h("div",{class:"cats sub"});
@@ -343,14 +344,22 @@ function secBlock(s){SEC[s.section]=s.items;
     s.tabs.forEach((t,k)=>strip.append(h("button",{class:"cat"+(k===0?" on":""),onclick:()=>pick(k)},t.name)));out.push(strip)}
   out.push(box);return out}
 async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
-  let page=1,busy=false,done=false;
+  let page=1,busy=false,done=false,cur={id:m.id||"",url:m.url||"",title:m.title||""},gen=0;
+  const tabs=SECT[m.title]||[];
   const grid=h("div",{class:"grid"}),st=h("div",{class:"state"},"Loading…"),btn=h("button",{class:"btn",style:"margin:16px auto;display:none"},"Aur dikhao");
-  mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),h("h2",{class:"sec"},m.title||"All"),grid,st,btn);
-  const load=async()=>{if(busy||done)return;busy=true;btn.style.display="none";
-    try{const j=await api("/more?id="+encodeURIComponent(m.id||"")+"&url="+encodeURIComponent(m.url||"")+"&title="+encodeURIComponent(m.title||"")+"&page="+page),it=j.items||[];
+  const strip=tabs.length?h("div",{class:"cats sub"}):null;
+  mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),h("h2",{class:"sec"},m.title||"All"),strip,grid,st,btn);
+  const load=async()=>{if(busy||done)return;busy=true;btn.style.display="none";const g=gen;
+    try{const j=await api("/more?id="+encodeURIComponent(cur.id)+"&url="+encodeURIComponent(cur.url)+"&title="+encodeURIComponent(cur.title)+"&page="+page),it=j.items||[];
+      if(g!==gen){busy=false;return}
       if(it.length){it.forEach(i=>grid.append(card(i)));page++;st.textContent="";btn.style.display="block"}
-      else{done=true;if(!grid.children.length&&SEC[m.title]){SEC[m.title].forEach(i=>grid.append(card(i)));st.textContent=""}else st.textContent=grid.children.length?"Bas itna hi.":"Is section ka poora list nahi mila."}}
+      else{done=true;const fb=cur.items||SEC[cur.title];if(!grid.children.length&&fb&&fb.length){fb.forEach(i=>grid.append(card(i)));st.textContent=""}else st.textContent=grid.children.length?"Bas itna hi.":"Is category ka poora list nahi mila."}}
     catch(e){st.textContent="Load nahi hua."}busy=false};
+  const pick=k=>{
+    const t=k<0?null:tabs[k];gen++;page=1;busy=false;done=false;grid.replaceChildren();st.textContent="Loading…";
+    cur=t?{id:String(t.id||""),url:"",title:t.name,items:t.items}:{id:m.id||"",url:m.url||"",title:m.title||""};load()};
+  if(strip){strip.append(h("button",{class:"cat on",onclick:()=>pick(-1)},"All"));tabs.forEach((t,k)=>strip.append(h("button",{class:"cat",onclick:()=>pick(k)},t.name)));
+    [...strip.children].forEach((b,j)=>{const f=b.onclick;b.onclick=()=>{[...strip.children].forEach((x,y)=>x.classList.toggle("on",y===j));f()}})}
   btn.onclick=load;load()}
 
 /* ---------- home ---------- */
