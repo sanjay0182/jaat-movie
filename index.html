@@ -268,6 +268,20 @@ html.tv .nav svg{width:26px;height:26px}
 html.tv .hero .pri,html.tv .hero .glass{font-size:clamp(18px,1.3vw,26px);padding:16px 38px}
 html.tv .btn,html.tv .chip,html.tv select{font-size:clamp(15px,1.05vw,20px);padding:12px 22px}
 html.tv .ep{font-size:clamp(16px,1.2vw,22px)}
+
+/* ---------- accounts ---------- */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:30;padding:16px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:24px;width:100%;max-width:340px;display:grid;grid-template-columns:minmax(0,1fr);gap:12px;box-shadow:var(--shadow);max-height:calc(100% - 8px);overflow-y:auto}
+.box>*{min-width:0;max-width:100%}
+.box .in{border-radius:12px;background:var(--panel2);font-size:16px}
+.box .in:focus{border-color:var(--accent)}
+.box .pri,.box .btn,.box .back{display:block;width:100%}
+.box .back{text-align:center;margin:0;padding:6px 0;background:none;border:0;color:var(--dim);font-weight:600}
+.box .btn{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 16px;color:var(--text)}
+.err{color:var(--accent);font-size:13px;min-height:1em}
+.prog{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,.25);z-index:2}.prog i{display:block;height:100%;background:var(--accent)}
+.ep.seen{opacity:.55}.ep.seen::before{content:"✓";position:absolute;top:2px;left:6px;font-size:10px;color:var(--accent)}
+html.tv .modal :focus,html.big .modal :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -284,9 +298,13 @@ html.tv .ep{font-size:clamp(16px,1.2vw,22px)}
 const BASE="",LITE=document.documentElement.classList.contains("lite");
 const $app=document.getElementById("app"),$nav=document.getElementById("nav");
 const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
-let favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET={},HC={},TAB="",TABS=[],SEC={};
+let ME=null,PROG=[],SEENSET=new Set(),favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET={},HC={},TAB="",TABS=[],SEC={};
 function h(t,a,...k){const el=document.createElement(t);for(const[n,v]of Object.entries(a||{})){if(n==="class")el.className=v;else if(n.startsWith("on"))el[n]=v;else if(v===true)el.setAttribute(n,"");else if(v!==false&&v!=null)el.setAttribute(n,v)}for(const c of k.flat())if(c!=null)el.append(c.nodeType?c:document.createTextNode(c));return el}
-const api=async p=>{const r=await fetch(BASE+p);if(!r.ok)throw new Error(r.status);return r.json()};
+const api=async(p,body)=>{const o={headers:{}},t=store.get("jf_token");if(t)o.headers.Authorization="Bearer "+t;
+  if(body!==undefined){o.method="POST";o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body)}
+  const r=await fetch(BASE+p,o);let j=null;
+  if(!r.ok){let m="";try{m=(await r.json()).error}catch(e){}const e=new Error(m||r.status);e.status=r.status;throw e}
+  return r.json()};
 const go=x=>{location.hash=x};
 const mount=(...e)=>$app.replaceChildren(...e.flat().filter(Boolean));
 function kill(){timers.forEach(clearInterval);timers=[];if(hls){hls.destroy();hls=null}const v=document.querySelector("video");if(v){try{v.pause();v.removeAttribute("src");v.load()}catch(e){}}}
@@ -294,9 +312,9 @@ let txT=0;function setTheme(t,anim){const r=document.documentElement;if(anim&&!L
 setTheme(store.get("theme")||"dark");
 document.getElementById("theme").onclick=()=>setTheme(document.documentElement.dataset.theme==="dark"?"light":"dark",true);
 
-const IC={home:'<path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',list:'<path d="M12 21s-7-4.6-9.3-9.2C1.2 8.6 3 5 6.4 5c2 0 3.6 1.2 5.6 3.4C14 6.2 15.6 5 17.6 5 21 5 22.8 8.6 21.3 11.8 19 16.4 12 21 12 21z"/>'};
+const IC={home:'<path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',acct:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.5 4-6 8-6s7 1.5 8 6"/>',list:'<path d="M12 21s-7-4.6-9.3-9.2C1.2 8.6 3 5 6.4 5c2 0 3.6 1.2 5.6 3.4C14 6.2 15.6 5 17.6 5 21 5 22.8 8.6 21.3 11.8 19 16.4 12 21 12 21z"/>'};
 function drawNav(){const cur=location.hash.replace(/^#\/?/,"").split("/")[0];
-  const it=[["home","Home",()=>go("#/")],["search","Search",openSearch],["list","My List",()=>go("#/list")]];
+  const it=[["home","Home",()=>go("#/")],["list","My List",()=>go("#/list")],["acct",ME?ME.username:"Account",()=>ME?accountModal():authModal()]];
   $nav.replaceChildren(...it.map(([k,l,f])=>{const b=h("button",{class:(k==="home"&&!["list","show","watch"].includes(cur))||k===cur?"on":"",onclick:f},l);b.insertAdjacentHTML("afterbegin",'<svg viewBox="0 0 24 24">'+IC[k]+"</svg>");return b}))}
 
 /* ---------- cards ---------- */
@@ -342,7 +360,9 @@ async function home(){
   if(!TABS.length)TABS=R.tabs||[];const HOME=R.sections||[];
   const ban=(HOME.find(s=>s.section==="Banner")||{items:[]}).items.slice(0,5);
   const rest=HOME.filter(s=>s.section!=="Banner"&&s.items&&s.items.length).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));
+  await meReady;
   const frag=[tabBar()].filter(Boolean);
+  const cont=ME&&!TAB?PROG.filter(p=>p.slug&&p.sid):[];
   if(ban.length){const box=h("div",{class:"hero"}),N=ban.length,D=LITE?10000:6000;let i=0,hT=0,sx=0,sy=0;
     const to=k=>{clearTimeout(hT);i=(k+N)%N;draw()};
     const tick=()=>{if(!box.isConnected)return;if(document.hidden){hT=setTimeout(tick,D);return}to(i+1)};
@@ -359,6 +379,12 @@ async function home(){
     box.addEventListener("touchstart",e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
     box.addEventListener("touchend",e=>{if(N<2)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.5)to(i+(dx<0?1:-1))},{passive:true});
     draw();frag.push(box)}
+  const cutAt=frag.length;
+  if(cont.length){const items=cont.slice(0,15);
+    const rw=railBox(items.map(p=>({slug:p.slug,subject_id:p.sid,name:p.name+(p.season||p.episode?" · S"+p.season+" E"+p.episode:""),poster_url:p.poster_url})));
+    [...rw.querySelectorAll(".card")].forEach((c,k)=>{const p=items[k];c.onclick=()=>go("#/watch/"+p.sid+"/"+p.slug+"/"+p.season+"/"+p.episode);
+      if(p.dur)c.querySelector(".pw").append(h("div",{class:"prog"},h("i",{style:"width:"+Math.min(100,p.pos/p.dur*100)+"%"})))});
+    frag.splice(cutAt,0,h("div",{class:"sec-row"},h("h2",{},"▶ Continue watching")),rw)}
   rest.forEach(s=>frag.push(...secBlock(s)));
   if(!frag.length)frag.push(h("div",{class:"state"},"Kuch nahi mila."));
   $app.replaceChildren(...frag)}
@@ -377,8 +403,45 @@ document.getElementById("sbtn").onclick=openSearch;
 document.getElementById("logo").onclick=()=>go("#/");
 
 /* ---------- list ---------- */
-function listPage(){$app.replaceChildren(h("h2",{class:"sec"},"My List"),favs.length?h("div",{class:"grid"},favs.map(card)):h("div",{class:"state"},"Abhi list khaali hai. Kisi title pe “Add to My List” dabao."))}
-function toggleFav(i){const k=favs.findIndex(f=>f.slug===i.slug);if(k>=0)favs.splice(k,1);else favs.unshift(i);store.set("mb_favs",JSON.stringify(favs))}
+async function listPage(){await meReady;$app.replaceChildren(h("h2",{class:"sec"},"My List"),!ME?h("div",{class:"state"},"Sign in karo taaki list har device pe mile. ",h("button",{class:"pri",style:"margin-top:10px",onclick:authModal},"Sign in")):null,favs.length?h("div",{class:"grid"},favs.map(card)):h("div",{class:"state"},"Abhi list khaali hai. Kisi title pe “Add to My List” dabao."),
+    ME?(()=>{const hist=PROG.filter(p=>p.slug&&p.sid);return h("div",{},h("h2",{class:"sec"},"History",h("span",{style:"font-weight:400;font-size:13px;color:var(--dim);margin-left:8px"},hist.length+" titles")),
+      hist.length?h("div",{class:"grid"},hist.map(contCard)):h("div",{class:"state"},"Abhi watch history nahi hai."))})():null)}
+function toggleFav(i){const k=favs.findIndex(f=>f.slug===i.slug);const on=k<0;if(k>=0)favs.splice(k,1);else favs.unshift(i);store.set("mb_favs",JSON.stringify(favs));
+  if(ME)api("/api/fav",{item:i,on}).catch(()=>{})}
+
+/* ---------- account ---------- */
+let installEvt=null;addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e});
+const contCard=p=>{const c=card({slug:p.slug,subject_id:p.sid,name:p.name+(p.season||p.episode?" · S"+p.season+" E"+p.episode:""),poster_url:p.poster_url});
+  c.onclick=()=>go("#/watch/"+p.sid+"/"+p.slug+"/"+p.season+"/"+p.episode);
+  if(p.dur)c.querySelector(".pw").append(h("div",{class:"prog"},h("i",{style:"width:"+Math.min(100,p.pos/p.dur*100)+"%"})));return c};
+let LOCKS=0;
+function modal(...kids){const m=h("div",{class:"modal",onclick:e=>{if(e.target===m)m.remove()}},h("div",{class:"box"},...kids));document.body.append(m);return m}
+async function loadMe(){if(!store.get("jf_token"))return;
+  try{const j=await api("/api/me");ME=j.user;PROG=j.progress||[];
+    const srv=j.favs||[];const have=new Set(srv.map(f=>String(f.subject_id)));
+    /* login se pehle local list me jo titles the, unhe server pe bhi daal do */
+    favs.filter(f=>f.subject_id&&!have.has(String(f.subject_id))).forEach(f=>api("/api/fav",{item:f,on:true}).catch(()=>{}));
+    favs=[...favs.filter(f=>f.subject_id&&!have.has(String(f.subject_id))),...srv];store.set("mb_favs",JSON.stringify(favs))}
+  catch(e){if(e.status===401)store.set("jf_token","");ME=null;PROG=[]}}
+let meReady=loadMe().then(()=>drawNav());
+function authModal(){let mode="login";
+  const u=h("input",{class:"in",placeholder:"Username",autocomplete:"username"}),p=h("input",{class:"in",type:"password",placeholder:"Password",autocomplete:"current-password"}),err=h("div",{class:"err"});
+  const title=h("b",{style:"font-size:18px"},"Sign in"),sw=h("button",{class:"back"},"Naye ho? Account banao"),ok=h("button",{class:"pri"},"Sign in");
+  const m=modal(title,u,p,err,ok,sw);
+  sw.onclick=()=>{mode=mode==="login"?"signup":"login";title.textContent=ok.textContent=mode==="login"?"Sign in":"Account banao";sw.textContent=mode==="login"?"Naye ho? Account banao":"Account hai? Sign in"};
+  ok.onclick=async()=>{err.textContent="";ok.disabled=true;try{const j=await api("/api/"+mode,{username:u.value.trim(),password:p.value});store.set("jf_token",j.token);m.remove();await loadMe();drawNav();route()}catch(e){err.textContent=e.message}ok.disabled=false};
+  p.onkeydown=e=>{if(e.key==="Enter")ok.click()};u.focus()}
+function accountModal(){
+  const o=h("input",{class:"in",type:"password",placeholder:"Current password",autocomplete:"current-password"}),n=h("input",{class:"in",type:"password",placeholder:"Naya password (min 6)",autocomplete:"new-password"}),msg=h("div",{class:"err"});
+  const save=h("button",{class:"btn"},"Password badlo");
+  save.onclick=async()=>{msg.style.color="var(--accent)";msg.textContent="";try{await api("/api/password",{old:o.value,new:n.value});o.value=n.value="";msg.style.color="#2fd6a1";msg.textContent="Password badal gaya."}catch(e){msg.textContent=e.message}};
+  const inst=h("button",{class:"btn"},"Install app");
+  inst.onclick=()=>{if(installEvt){installEvt.prompt();installEvt=null}else alert("Install karne ke liye browser menu me “Add to Home screen” chuno (iPhone: Share → Add to Home Screen).")};
+  const m=modal(h("b",{style:"font-size:18px"},ME.username),o,n,msg,save,inst,
+    h("button",{class:"btn",onclick:async()=>{try{await api("/api/logout",{})}catch(e){}store.set("jf_token","");ME=null;PROG=[];m.remove();drawNav();go("#/");route()}},"Sign out"),
+    h("button",{class:"back",onclick:()=>m.remove()},"Close"))}
+const applySeen=()=>document.querySelectorAll(".ep[data-k]").forEach(b=>b.classList.toggle("seen",SEENSET.has(b.dataset.k)));
+async function loadSeen(id){SEENSET=new Set();if(!ME)return;try{SEENSET=new Set((await api("/api/seen/"+id)).seen||[]);applySeen()}catch(e){}}
 
 /* ---------- detail ---------- */
 async function getDet(slug){if(DET[slug])return DET[slug];const d=await api("/detail/"+slug),s=(d.data&&d.data.subject)||{},r=(d.data&&d.data.resource)||{};
@@ -387,11 +450,12 @@ async function getDet(slug){if(DET[slug])return DET[slug];const d=await api("/de
   return DET[slug]={title:s.title||slug,poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,seasons,dubs:((d.data&&d.data.dubs)||[]).filter(x=>x.subjectId&&x.detailPath).map(x=>({id:x.subjectId,slug:x.detailPath,lang:x.lanName||x.lanCode||"Dub"}))}}
 function epGrid(seasons,curSe,curEp,pick){let sh=curSe||seasons[0].se;const tabs=h("div",{class:"chips"}),grid=h("div",{class:"eps"});
   const paint=()=>{tabs.replaceChildren(...(seasons.length>1?seasons.map(s=>h("button",{class:"chip","aria-pressed":String(s.se===sh),onclick:()=>{sh=s.se;paint()}},"Season "+s.se)):[]));
-    const n=(seasons.find(s=>s.se===sh)||{n:0}).n;grid.replaceChildren(...Array.from({length:n},(_,k)=>h("button",{class:"ep"+(sh===curSe&&k+1===curEp?" cur":""),onclick:()=>pick(sh,k+1)},String(k+1))))};
+    const n=(seasons.find(s=>s.se===sh)||{n:0}).n;grid.replaceChildren(...Array.from({length:n},(_,k)=>h("button",{"data-k":sh+":"+(k+1),class:"ep"+(sh===curSe&&k+1===curEp?" cur":"")+(SEENSET.has(sh+":"+(k+1))?" seen":""),onclick:()=>pick(sh,k+1)},String(k+1))))};
   paint();return h("div",{},h("h2",{class:"sec"},"Episodes"),tabs,h("div",{style:"height:10px"}),grid)}
 async function show(slug,id){
   $app.replaceChildren(h("div",{class:"hero sk"}));let d;
   try{d=await getDet(slug)}catch(e){$app.replaceChildren(h("div",{class:"state"},"Detail load nahi hua."));return}
+  await meReady;const last=PROG.find(p=>String(p.sid)===String(id));loadSeen(id);
   const play=(se,ep)=>go("#/watch/"+id+"/"+slug+"/"+se+"/"+ep),first=d.series?d.seasons[0]:{se:0};
   const inList=()=>favs.some(f=>f.slug===slug),item={slug,subject_id:id,name:d.title,poster_url:d.poster,rating:d.rating};
   const fb=h("button",{class:"glass",onclick:()=>{toggleFav(item);fb.textContent=inList()?"✓ In My List":"+ My List"}},inList()?"✓ In My List":"+ My List");
@@ -399,7 +463,7 @@ async function show(slug,id){
     h("div",{class:"top"},h("div",{class:"bg",style:"background-image:url('"+d.poster+"')"}),h("div",{class:"in2"},
       h("div",{class:"pic"},img(d.poster)),
       h("div",{class:"dtx"},h("h1",{},d.title),h("div",{style:"color:#d5d8e2;font-size:13px"},[d.rating?"★ "+d.rating:"",d.year,d.series?d.seasons.length+" season"+(d.seasons.length>1?"s":""):"Movie"].filter(Boolean).join(" · ")),
-        h("div",{class:"row2"},h("button",{class:"pri",style:"flex:1",onclick:()=>play(first.se,d.series?1:0)},"▶ Watch now"),fb)))),
+        h("div",{class:"row2"},h("button",{class:"pri",style:"flex:1",onclick:()=>last&&last.slug===slug?play(last.season,last.episode):play(first.se,d.series?1:0)},last&&last.slug===slug?(d.series?"▶ Continue S"+last.season+" E"+last.episode:"▶ Resume"):"▶ Watch now"),fb)))),
     d.genres.length?h("div",{class:"chips",style:"margin-top:14px"},d.genres.map(g=>h("span",{class:"chip"},g))):null,
     h("p",{class:"desc"},d.desc||"Description available nahi hai."),
     d.series?epGrid(d.seasons,0,0,play):null)}
@@ -450,7 +514,11 @@ async function watch(id,slug,se,ep){
   const mine=()=>document.body.contains(box);
   let data;try{data=await api("/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+(d.series?se:0)+"&ep="+(d.series?ep:0))}catch(e){if(mine())msg.textContent="Server error. Thodi der baad try karo.";return}
   if(!mine())return;const src=data.sources||[];if(!src.length){msg.textContent=data.note||"Is title ka stream available nahi hai.";return}
-  const key="pos:"+id+":"+se+":"+ep;let resume=+store.get(key)||0,cur=0;const tried=new Set();
+  await meReady;if(!mine())return;loadSeen(id);
+  const key="pos:"+id+":"+se+":"+ep,sp=ME&&PROG.find(p=>String(p.sid)===String(id)&&+p.season===+se&&+p.episode===+ep);
+  let resume=(sp&&sp.pos>10&&sp.dur-sp.pos>30?sp.pos:0)||+store.get(key)||0,cur=0;
+  const saveProg=ended=>{if(!ME||!video.duration)return;const r={sid:String(id),season:+se||0,episode:+ep||0,pos:ended?video.duration:video.currentTime,dur:video.duration,slug,name:d.title,poster_url:d.poster,rating:d.rating};
+    api("/api/progress",r).then(()=>{const i=PROG.findIndex(x=>String(x.sid)===String(id));if(i>=0)PROG.splice(i,1);PROG.unshift(r);if(ended){SEENSET.add((+se||0)+":"+(+ep||0));applySeen()}}).catch(()=>{})};const tried=new Set();
   dlb.onclick=async()=>{const x=src[cur];if(!x)return;let raw=new URL(x.url,location.href).searchParams.get("u")||"";
     if(x.kind==="hls"&&hls&&hls.levels.length>1){const k=hls.autoLevelEnabled?hls.levels.reduce((b,l,i,a)=>l.height>a[b].height?i:b,0):hls.currentLevel,L=hls.levels[k],lu=L&&(L.uri||(L.url&&L.url[0]));
       if(lu){const q=new URL(lu,location.href).searchParams.get("u");if(q)raw=q}}
@@ -461,9 +529,10 @@ async function watch(id,slug,se,ep){
       const a=h("a",{href:dl});document.body.append(a);a.click();setTimeout(()=>a.remove(),1000);
       dlMsg.textContent="Download shuru ho gaya. Browser ke downloads mein dekho. File VLC ya MX Player mein chalegi."}
     catch(e){dlMsg.textContent=e.message}dlb.disabled=false};
-  video.onended=()=>{store.set(key,"0");if(!next||!auto.checked)return;let n=5;const lb=h("span",{},"Next episode in "+n+"s"),bar=h("div",{class:"cd"},lb,h("div",{},h("button",{class:"go",onclick:()=>{clearInterval(t);go(nUrl(next))}},"Play now"),h("button",{onclick:()=>{clearInterval(t);bar.remove()}},"Cancel")));
+  video.onended=()=>{store.set(key,"0");saveProg(true);if(!next||!auto.checked)return;let n=5;const lb=h("span",{},"Next episode in "+n+"s"),bar=h("div",{class:"cd"},lb,h("div",{},h("button",{class:"go",onclick:()=>{clearInterval(t);go(nUrl(next))}},"Play now"),h("button",{onclick:()=>{clearInterval(t);bar.remove()}},"Cancel")));
     box.append(bar);const t=setInterval(()=>{n--;lb.textContent="Next episode in "+n+"s";if(n<=0){clearInterval(t);go(nUrl(next))}},1000);timers.push(t)};
   timers.push(setInterval(()=>{if(!video.paused&&video.currentTime>5)store.set(key,String(video.currentTime))},8000));
+  timers.push(setInterval(()=>{if(!video.paused&&video.currentTime>5)saveProg()},10000));video.addEventListener("pause",()=>{if(!video.ended&&video.currentTime>5)saveProg()});
   function play(i){cur=i;tried.add(i);if(hls){hls.destroy();hls=null}msg.style.display="flex";msg.textContent="Loading…";sels.querySelectorAll(".dyn").forEach(x=>x.remove());
     srcSel.replaceChildren(...src.map((s,j)=>h("option",{value:j,selected:j===i},s.label)));
     const x=src[i],hide=()=>{msg.style.display="none";buf.style.display="none"};

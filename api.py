@@ -10,6 +10,7 @@ JaatFlix API (MovieBox backend)
 import asyncio, json, os, re, time
 from urllib.parse import quote, urljoin
 import httpx
+import accounts
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -491,6 +492,149 @@ async def download(u: str, name: str = "video", check: int = 0):
         finally:
             await r.aclose(); await c.aclose()
     return StreamingResponse(gen(), headers=hd)
+
+
+# ===================== ACCOUNTS (watch-anime wala system, JaatFlix ka apna DB) =====================
+import hmac, threading
+ADMIN_KEY = os.getenv("ADMIN_KEY", "")
+
+
+def _token(request: Request):
+    a = request.headers.get("authorization") or ""
+    return a[7:] if a.lower().startswith("bearer ") else ""
+
+
+async def _body(request: Request):
+    try:
+        b = await request.json()
+        return b if isinstance(b, dict) else {}
+    except Exception:
+        return {}
+
+
+async def _me(request: Request):
+    return await asyncio.to_thread(accounts.user_for, _token(request))
+
+
+def _err(msg, code=400):
+    return JSONResponse({"error": msg}, status_code=code)
+
+
+@app.post("/api/signup")
+async def api_signup(request: Request):
+    b = await _body(request)
+    tok, err = await asyncio.to_thread(accounts.signup, str(b.get("username", "")).strip(), str(b.get("password", "")))
+    if err:
+        return _err(err)
+    return {"token": tok, "user": await asyncio.to_thread(accounts.user_for, tok)}
+
+
+@app.post("/api/login")
+async def api_login(request: Request):
+    b = await _body(request)
+    tok, err = await asyncio.to_thread(accounts.login, str(b.get("username", "")).strip(), str(b.get("password", "")))
+    if err:
+        return _err(err)
+    return {"token": tok, "user": await asyncio.to_thread(accounts.user_for, tok)}
+
+
+@app.post("/api/logout")
+async def api_logout(request: Request):
+    await asyncio.to_thread(accounts.logout, _token(request))
+    return {"ok": True}
+
+
+@app.get("/api/me")
+async def api_me(request: Request):
+    u = await _me(request)
+    if not u:
+        return _err("Pehle sign in karo.", 401)
+    favs, prog = await asyncio.gather(asyncio.to_thread(accounts.get_favs, u["id"]),
+                                      asyncio.to_thread(accounts.get_progress, u["id"]))
+    return {"user": u, "progress": prog, "favs": favs}
+
+
+@app.post("/api/progress")
+async def api_progress(request: Request):
+    u = await _me(request)
+    if not u:
+        return _err("Pehle sign in karo.", 401)
+    b = await _body(request)
+    sid = str(b.get("sid", ""))[:60]
+    if not sid:
+        return _err("sid chahiye.")
+
+    def _save():
+        try:
+            accounts.save_progress(u["id"], sid, b.get("season"), b.get("episode"), b.get("pos"), b.get("dur"), b)
+            if float(b.get("dur") or 0) > 0 and float(b.get("pos") or 0) / float(b["dur"]) >= 0.85:
+                accounts.mark_seen(u["id"], sid, b.get("season"), b.get("episode"))
+        except Exception as e:
+            print("[jf] progress save failed:", e, flush=True)
+    threading.Thread(target=_save, daemon=True).start()
+    return {"ok": True}
+
+
+@app.post("/api/fav")
+async def api_fav(request: Request):
+    u = await _me(request)
+    if not u:
+        return _err("Pehle sign in karo.", 401)
+    b = await _body(request)
+    it = b.get("item") if isinstance(b.get("item"), dict) else {}
+    sid = str(it.get("subject_id") or b.get("sid") or "")[:60]
+    if not sid:
+        return _err("subject_id chahiye.")
+    await asyncio.to_thread(accounts.set_fav, u["id"], sid, bool(b.get("on")), it)
+    return {"ok": True}
+
+
+@app.get("/api/seen/{sid}")
+async def api_seen(sid: str, request: Request):
+    u = await _me(request)
+    return {"seen": await asyncio.to_thread(accounts.get_seen, u["id"], sid) if u else []}
+
+
+@app.post("/api/password")
+async def api_password(request: Request):
+    u = await _me(request)
+    if not u:
+        return _err("Pehle sign in karo.", 401)
+    b = await _body(request)
+    err = await asyncio.to_thread(accounts.change_password, u["id"], _token(request), str(b.get("old", "")), str(b.get("new", "")))
+    return _err(err) if err else {"ok": True}
+
+
+@app.get("/admin")
+async def admin_page():
+    return FileResponse("admin.html")
+
+
+_admin_fails = {}
+
+
+@app.post("/api/admin/{action}")
+async def api_admin(action: str, request: Request):
+    """Header X-Admin-Key = env ADMIN_KEY. actions: stats | password | delete"""
+    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
+    bad = _admin_fails.get(ip, (0, 0))
+    if bad[0] >= 5 and time.time() - bad[1] < 600:
+        return _err("Bahut zyada attempts. 10 min baad try karo.", 429)
+    given = request.headers.get("x-admin-key") or ""
+    if not ADMIN_KEY or not hmac.compare_digest(given.encode(), ADMIN_KEY.encode()):
+        _admin_fails[ip] = (bad[0] + 1, time.time())
+        return _err("Admin key galat hai.", 403)
+    _admin_fails.pop(ip, None)
+    b = await _body(request)
+    if action == "stats":
+        return await asyncio.to_thread(accounts.admin_stats)
+    if action == "password":
+        err = await asyncio.to_thread(accounts.admin_set_password, str(b.get("username", "")), str(b.get("password", "")))
+    elif action == "delete":
+        err = await asyncio.to_thread(accounts.admin_delete, str(b.get("username", "")))
+    else:
+        return _err("not found", 404)
+    return _err(err) if err else {"ok": True}
 
 
 PROBES = {
