@@ -1,11 +1,11 @@
 """
 JaatFlix API (MovieBox backend)
-- token auto-refresh + token bhi stream call mein jata hai
-- banner items normalize (hero image pehle toot-ti thi)
+- token auto-refresh; the token is also sent with stream calls
+- banner items are normalized (the hero image used to break)
 - India headers (Asia/Kolkata + IN)
-- /p  = video proxy: CDN ko sahi Referer deta hai, m3u8 rewrite karta hai
-  (browser se direct play isi wajah se 0:00 pe atakta tha)
-- Optional: env IN_PROXY=http://user:pass@indian-proxy:port -> saari calls India IP se
+- /p = video proxy: sends the correct Referer to the CDN and rewrites m3u8 playlists
+  (direct browser playback used to stall at 0:00 for this reason)
+- Optional: env IN_PROXY=http://user:pass@indian-proxy:port routes all calls through an Indian IP
 """
 import asyncio, json, os, re, time
 from urllib.parse import quote, urljoin
@@ -30,12 +30,12 @@ H = {
     "X-Request-Lang": "en", "X-Client-Info": XCI, "Accept-Language": "en-IN,en;q=0.9",
 }
 HOST = os.getenv("MB_HOST", "moviebox.ph")          # /home?host=... (mirror site)
-HBASE = dict(H)  # bina India headers ke (sirf /probe ke liye)
-# Probe se pakka hua: yahi IP headers Indian content dilate hain (ab default hain, env me daalne ki zaroorat nahi)
+HBASE = dict(H)  # without the India headers (used only by /probe)
+# Confirmed via /probe: these IP headers return Indian content (now the default; no env var needed)
 IN_IP = os.getenv("IN_FAKE_IP", "49.205.120.45")
 INH = {"X-Forwarded-For": IN_IP, "X-Real-IP": IN_IP, "CF-Connecting-IP": IN_IP, "CF-IPCountry": "IN"}
 H.update(INH)
-H.update(json.loads(os.getenv("MB_HEADERS", "{}")))  # extra headers chahiye to env me JSON daalo
+H.update(json.loads(os.getenv("MB_HEADERS", "{}")))  # extra headers can be supplied as JSON via the environment
 _tok = {"v": "", "t": 0}
 _ref = {"v": "https://netfilm.world/"}
 
@@ -66,7 +66,7 @@ async def call(url, payload=None, hdr=None, retry=True):
     await ensure_token()
     h = dict(hdr or H)
     if _tok["v"]:
-        h["Authorization"] = "Bearer " + _tok["v"]  # pehle player calls mein ye missing tha
+        h["Authorization"] = "Bearer " + _tok["v"]  # this was previously missing from player calls
     async with httpx.AsyncClient(follow_redirects=True, timeout=30, **CK) as c:
         try:
             r = await (c.post(url, headers=h, content=json.dumps(payload)) if payload is not None else c.get(url, headers=h))
@@ -84,7 +84,7 @@ async def call(url, payload=None, hdr=None, retry=True):
             return {}
 
 
-# ---------------- logo / icons (watch-anime wala same icon, embedded: alag file nahi chahiye) ----------------
+# ---------------- logo / icons (embedded, so no separate file is needed) ----------------
 import base64
 _ICONS = {
     "icon-192.png": base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAIAAADdvvtQAAAE4UlEQVR4nO3dwY0USRCF4ZwVtzlwXgxAWhvWgLUZA7ABCQMWN/ZQUqm2B4buflUZ70X+3xmhypi/I4sZBC+vrx8H8Kw/qh8A2QgIEgKChIAgISBICAgSAoKEgCAhIEgICBICgoSAICEgSAgIEgKChIAgISBICAgSAoKEgCAhIEgICBICgoSAICEgSAgIEgKChIAgISBICAgSAoKEgCAhIEgICBICgoSAICEgSD5UP4CL73//+dCv//z1x0VPkuVl2X/m99Fi3rdsT2sFdG40v7JUTEsENKebt1YoqXlAVekc9c6oZ0AO3bzVsqRuAXmmc9Qso1bfB/KvZ4Q85P2abKDEr0qPVRQfUGI6R+kZZV9h6fWM/CMEB5Q++l30QSKvsOiJvyPxOsvbQF3rGZlHCwsoccQPiTtgUkBxw31O1jFjAsoaqyjosBkBBQ30LClHDggoZZSnizi4e0ARQ7yO//GtA/If3wTmQ/ANyHxwMzmPwjQg55GVsB2IaUBI4RiQ7aetludY7AK6ekyfvny79Pe/lGFDXgHNGdCnL99yM3JryCugmXIbsmIU0PzPVugqslpCRgFVCc3IhEtA5Z+qrIbKx7WzCMhkHFmryGRoFgFZCWrIQX1AJp+ko5RV5DC6+oBspWRUi4B+g4beVxyQwxL+LedVVD5ANtC9nDMqVBlQ+afnCYYN1Y6RDfQwVtERAT2JjDZlASXeX2+ZNFQ4TDaQavFVREDnWLYhAjrNmquoJqAeL0A/VZVR1UjZQJdYZxUR0FUWudEI6FrtMyKgGRo3VBBQ4zfod0xYRSWDZQNN1e9GI6ACnRoioBptVhEBVWrQEAEVS19FBGQhNyMCMpLYEAF5iVtFH6ofAP/z7z9/VT/CY9hARuLqGWwgE4npbAioWG46G66wSun1DDZQlQbpbAhotjbpbAoC+vz1x5p/JejqdEr+02fegSZptnh2XGGX65rOhoAu1DudDVfYVVaoZ1RtoN7v0SXplLxBD66wcy2ydY64wk6zYD2DDXSKNdPZlAXU4zXIJJ2qF6DBFaYwqacWV9gzSGdXGVDiLWaYTuH9NbjCHmJYT7niKyxlCdmmU7t+RnlA/mzTMUFAv0Q696h/Bypfwj8VUY/D6NhAtyLS8WERkMmrdFY6DutnOFxhm/JxUM9zLDZQrax03BgFNP8iC03HZ/0MnytsvtB63BhtoDFrCUWnY7V+xhgvr68fq5/hlsOfyDy51TM8rzDDMTnwHItjQAhiGpDnp62Q7UBMAxrGI5vPeRS+AQ3vwU1jPgTrgIb9+K7mf3z3gEbCEC8ScfCAgEbIKM+VcuSMgEbOQE8RdNiYgEbUWBVZx0wKaKQN9wlxBwwLaASO+H6JR3P8YeqdOv3MNTGdTd4G2uUO/Ub0QYIDGuGj36QfIfgKO0q8ztLT2TQJaJOSUY90NtlX2I2IL0zEQ96v1Qbaea6iZulsega0cyipZTe75gFtqjLqnc5miYB2c0paoZvdWgEdnRvTUtEcrRvQjUd7WraYGwQESavvA2E+AoKEgCAhIEgICBICgoSAICEgSAgIEgKChIAgISBICAgSAoKEgCAhIEgICBICgoSAICEgSAgIEgKChIAgISBICAgSAoKEgCAhIEgICBICgoSAICEgSAgIEgKChIAgISBICAiS/wAopWLEgEoGGwAAAABJRU5ErkJggg=="),
@@ -134,13 +134,13 @@ def _item(s):
     s = s or {}
     t = s.get("title") or ""
     cn = s.get("corner")
-    badge = cn if isinstance(cn, str) and cn else ("Hindi" if "[hindi]" in t.lower() else None)  # card ke upar "Hindi" tag
+    badge = cn if isinstance(cn, str) and cn else ("Hindi" if "[hindi]" in t.lower() else None)  # "Hindi" tag shown on the card
     return {"name": t or None, "poster_url": (s.get("cover") or {}).get("url"),
             "slug": s.get("detailPath"), "subject_id": s.get("subjectId"), "rating": s.get("imdbRatingValue"),
             "badge": badge}
 
 
-# ===== MovieBox ka ASLI home / tabs / "All" (search se nahi: MovieBox khud roz trending update karta hai) =====
+# ===== MovieBox's real home / tabs / "All" (not search-based: MovieBox updates trending itself every day) =====
 _TAB_KEYS = ("tabList", "tabs", "navList", "homeTabs", "topTabs", "navigation", "categoryList", "channelList")
 _SUB_KEYS = ("tabs", "tabList", "subTabs", "categoryList", "categories", "filters", "genres")
 _ID_KEYS = ("rankingId", "rankId", "opId", "id", "url", "jumpUrl", "path", "link")
@@ -171,7 +171,7 @@ def _banner_items(op):
 
 
 def _subtabs(op):
-    """Section ke andar wale tabs (Asian Drama / Western TV / Turkish Drama / New ...) jo MovieBox ne diye."""
+    """Tabs inside a section (Asian Drama / Western TV / Turkish Drama / New ...) as provided by MovieBox."""
     for k in _SUB_KEYS:
         v = op.get(k)
         if isinstance(v, list) and v and isinstance(v[0], dict):
@@ -201,7 +201,7 @@ def _sections(d):
 
 
 def _toptabs(d):
-    """Upar wale tabs (Trending / Movie / Anime / ...) jo MovieBox ne home response me diye."""
+    """Top-level tabs (Trending / Movie / Anime / ...) as provided in the MovieBox home response."""
     data = d.get("data") or {}
     for k in _TAB_KEYS:
         v = data.get(k)
@@ -241,7 +241,7 @@ async def home(tab: str = "", page: int = 0):
 
 @app.get("/more")
 async def more(id: str = "", url: str = "", title: str = "", page: int = 1, per: int = 24):
-    """'All >' / sub-tab ka poora list. MovieBox ke apne endpoints ek-ek karke try hote hain."""
+    """Full list for 'All >' / a sub-tab. MovieBox's own endpoints are tried one by one."""
     cands = []
     if url.startswith("/"):
         cands.append(f"{API}{url}{'&' if '?' in url else '?'}page={page}&perPage={per}")
@@ -261,7 +261,7 @@ async def more(id: str = "", url: str = "", title: str = "", page: int = 1, per:
 
 @app.get("/shape")
 async def shape(tab: str = ""):
-    """Browser me kholo: /shape -> MovieBox ke home response ka dhancha (tabs, section ids). Debug ke liye."""
+    """Open in the browser: /shape -> structure of the MovieBox home response (tabs, section ids). For debugging."""
     d = await call(_home_url(tab))
     data = d.get("data") or {}
     return {"status": d.get("_http") or d.get("_err") or "ok",
@@ -272,11 +272,24 @@ async def shape(tab: str = ""):
                     for op in data.get("operatingList") or []]}
 
 
+@app.get("/peek")
+async def peek(tab: str = ""):
+    """Debug: open /peek in the browser to see the raw platformList, the Categories (FILTER) block and one sample section."""
+    d = await call(_home_url(tab))
+    data = d.get("data") or {}
+    ops = data.get("operatingList") or []
+    flt = next((op for op in ops if op.get("type") == "FILTER"), {})
+    smp = next((op for op in ops if op.get("type") == "SUBJECTS_MOVIE"), {})
+    trim = lambda op: {k: (v[:1] if k == "subjects" and isinstance(v, list) else v) for k, v in op.items()}
+    out = {"platformList": data.get("platformList"), "filter_block": trim(flt), "sample_section": trim(smp)}
+    return Response(json.dumps(out, ensure_ascii=False)[:30000], media_type="application/json")
+
+
 @app.get("/raw")
 async def raw(p: str):
-    """Debug: MovieBox API ka koi bhi path seedha dekho. /raw?p=%2Fhome%3Fhost%3Dmoviebox.ph"""
+    """Debug: view any MovieBox API path directly. /raw?p=%2Fhome%3Fhost%3Dmoviebox.ph"""
     if not p.startswith("/"):
-        return JSONResponse({"error": "p '/' se shuru hona chahiye"}, status_code=400)
+        return JSONResponse({"error": "p must start with '/'"}, status_code=400)
     d = await call(API + p)
     s = json.dumps(d, ensure_ascii=False)
     return Response(s[:60000], media_type="application/json")
@@ -308,11 +321,11 @@ async def stream(subject_id: str, detail_path: str, se: int = 0, ep: int = 0):
     play = f"{dom}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}"
     PH = {"User-Agent": UA, "Accept": "application/json", "Referer": ref, "X-Client-Info": XCI, "Accept-Language": "en-IN,en;q=0.9", **INH}
     pd = (await call(play, hdr=PH)).get("data") or {}
-    if not pd.get("hasResource"):  # ek baar fresh token se dobara try
+    if not pd.get("hasResource"):  # retry once with a fresh token
         await ensure_token(True)
         pd = (await call(play, hdr=PH)).get("data") or {}
     src = []
-    for x in pd.get("hls") or []:  # hls items dict bhi ho sakte hain, string bhi
+    for x in pd.get("hls") or []:  # hls items can be dicts or strings
         u = x.get("url") if isinstance(x, dict) else x
         if u:
             src.append({"kind": "hls", "label": "Auto (HLS)", "res": 9999, "url": _px(u)})
@@ -323,7 +336,7 @@ async def stream(subject_id: str, detail_path: str, se: int = 0, ep: int = 0):
     src.sort(key=lambda x: -x["res"])
     st = (pd.get("streams") or pd.get("dash") or [None])[0] or {}
     cap = {"id": st.get("id"), "fmt": st.get("format") or "MP4"}
-    return {"has_resource": bool(src), "sources": src, "note": None if src else "Is episode ka stream nahi mila.", "cap": cap, "_domain": dom}
+    return {"has_resource": bool(src), "sources": src, "note": None if src else "No stream was found for this episode.", "cap": cap, "_domain": dom}
 
 
 @app.get("/p")
@@ -375,7 +388,7 @@ async def captions(subject_id: str, detail_path: str, id: str = "", fmt: str = "
 
 @app.get("/sub")
 async def sub(u: str):
-    """Subtitle fetch + SRT -> WebVTT (browser <track> sirf VTT samajhta hai)."""
+    """Fetch subtitles and convert SRT -> WebVTT (the browser <track> element only understands VTT)."""
     async with httpx.AsyncClient(follow_redirects=True, timeout=30, **CK) as c:
         try:
             r = await c.get(u, headers={"User-Agent": UA, "Referer": _ref["v"]})
@@ -398,12 +411,12 @@ def _fname(name, ext):
 
 
 async def _hls_plan(c, u):
-    """master/media playlist -> (segments, init, error). Master ho to sabse high bandwidth wala variant leta hai."""
+    """master/media playlist -> (segments, init, error). For a master playlist, the highest-bandwidth variant is used."""
     t, base = "", u
     for _ in range(3):
         r = await c.get(u, headers=_dh())
         if r.status_code != 200:
-            return None, None, f"Playlist ne {r.status_code} diya"
+            return None, None, f"Playlist returned {r.status_code}"
         t, base = r.text, str(r.url)
         if "#EXT-X-STREAM-INF" not in t:
             break
@@ -416,16 +429,16 @@ async def _hls_plan(c, u):
                 if nx and b > bw:
                     best, bw = urljoin(base, nx), b
         if not best:
-            return None, None, "Playlist me variant nahi mila"
+            return None, None, "No variant found in the playlist"
         u = best
     lines = t.splitlines()
     if any(l.startswith("#EXT-X-KEY") and "METHOD=NONE" not in l for l in lines):
-        return None, None, "Ye stream encrypted hai, download nahi ho sakti."
+        return None, None, "This stream is encrypted and cannot be downloaded."
     m = re.search(r'#EXT-X-MAP:.*?URI="([^"]+)"', t)
     init = urljoin(base, m.group(1)) if m else None
     segs = [urljoin(base, x.strip()) for x in lines if x.strip() and not x.startswith("#")]
     if not segs:
-        return None, None, "Playlist khaali hai"
+        return None, None, "The playlist is empty"
     return segs, init, None
 
 
@@ -454,7 +467,7 @@ async def _dl_hls(u, name, check):
                         pass
                     await asyncio.sleep(1)
                 else:
-                    return  # segment 3 baar fail: download yahin rok do
+                    return  # segment failed 3 times: stop the download here
     return StreamingResponse(gen(), media_type="application/octet-stream",
                              headers={"Content-Disposition": f'attachment; filename="{_fname(name, ext)}"'})
 
@@ -462,7 +475,7 @@ async def _dl_hls(u, name, check):
 @app.get("/dl")
 async def download(u: str, name: str = "video", check: int = 0):
     if not u.startswith("http"):
-        return JSONResponse({"ok": False, "error": "Galat link"}, status_code=400)
+        return JSONResponse({"ok": False, "error": "Invalid link"}, status_code=400)
     if ".m3u8" in u.split("?")[0].lower():
         return await _dl_hls(u, name, check)
     c = httpx.AsyncClient(follow_redirects=True, timeout=30, **CK)
@@ -477,7 +490,7 @@ async def download(u: str, name: str = "video", check: int = 0):
         await r.aclose(); await c.aclose()
         if "mpegurl" in ct:
             return await _dl_hls(u, name, check)
-        return JSONResponse({"ok": False, "error": f"Server ne {code} diya"}, status_code=502)
+        return JSONResponse({"ok": False, "error": f"Server returned {code}"}, status_code=502)
     if check:
         await r.aclose(); await c.aclose()
         return {"ok": True}
@@ -494,7 +507,7 @@ async def download(u: str, name: str = "video", check: int = 0):
     return StreamingResponse(gen(), headers=hd)
 
 
-# ===================== ACCOUNTS (watch-anime wala system, JaatFlix ka apna DB) =====================
+# ===================== ACCOUNTS (JaatFlix's own database) =====================
 import hmac, threading
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
@@ -548,7 +561,7 @@ async def api_logout(request: Request):
 async def api_me(request: Request):
     u = await _me(request)
     if not u:
-        return _err("Pehle sign in karo.", 401)
+        return _err("Please sign in first.", 401)
     favs, prog = await asyncio.gather(asyncio.to_thread(accounts.get_favs, u["id"]),
                                       asyncio.to_thread(accounts.get_progress, u["id"]))
     return {"user": u, "progress": prog, "favs": favs}
@@ -558,11 +571,11 @@ async def api_me(request: Request):
 async def api_progress(request: Request):
     u = await _me(request)
     if not u:
-        return _err("Pehle sign in karo.", 401)
+        return _err("Please sign in first.", 401)
     b = await _body(request)
     sid = str(b.get("sid", ""))[:60]
     if not sid:
-        return _err("sid chahiye.")
+        return _err("sid is required.")
 
     def _save():
         try:
@@ -579,12 +592,12 @@ async def api_progress(request: Request):
 async def api_fav(request: Request):
     u = await _me(request)
     if not u:
-        return _err("Pehle sign in karo.", 401)
+        return _err("Please sign in first.", 401)
     b = await _body(request)
     it = b.get("item") if isinstance(b.get("item"), dict) else {}
     sid = str(it.get("subject_id") or b.get("sid") or "")[:60]
     if not sid:
-        return _err("subject_id chahiye.")
+        return _err("subject_id is required.")
     await asyncio.to_thread(accounts.set_fav, u["id"], sid, bool(b.get("on")), it)
     return {"ok": True}
 
@@ -599,7 +612,7 @@ async def api_seen(sid: str, request: Request):
 async def api_password(request: Request):
     u = await _me(request)
     if not u:
-        return _err("Pehle sign in karo.", 401)
+        return _err("Please sign in first.", 401)
     b = await _body(request)
     err = await asyncio.to_thread(accounts.change_password, u["id"], _token(request), str(b.get("old", "")), str(b.get("new", "")))
     return _err(err) if err else {"ok": True}
@@ -619,11 +632,11 @@ async def api_admin(action: str, request: Request):
     ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
     bad = _admin_fails.get(ip, (0, 0))
     if bad[0] >= 5 and time.time() - bad[1] < 600:
-        return _err("Bahut zyada attempts. 10 min baad try karo.", 429)
+        return _err("Too many attempts. Please try again in 10 minutes.", 429)
     given = request.headers.get("x-admin-key") or ""
     if not ADMIN_KEY or not hmac.compare_digest(given.encode(), ADMIN_KEY.encode()):
         _admin_fails[ip] = (bad[0] + 1, time.time())
-        return _err("Admin key galat hai.", 403)
+        return _err("Invalid admin key.", 403)
     _admin_fails.pop(ip, None)
     b = await _body(request)
     if action == "stats":
@@ -648,7 +661,7 @@ PROBES = {
 
 @app.get("/probe")
 async def probe():
-    """Browser me kholo: /probe  -> dekho kis variant me Indian/Hindi titles aate hain."""
+    """Open in the browser: /probe -> shows which variant returns Indian/Hindi titles."""
     out = {}
     async with httpx.AsyncClient(follow_redirects=True, timeout=25, **CK) as c:
         try:

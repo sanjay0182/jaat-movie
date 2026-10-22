@@ -89,17 +89,17 @@ def _session(uid):
 
 def signup(username, password):
     if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", username or ""):
-        return None, "Username 3-20 letters, numbers ya underscore ka hona chahiye."
+        return None, "Username must be 3-20 letters, numbers or underscores."
     if len(password or "") < 6:
-        return None, "Password kam se kam 6 characters ka rakho."
+        return None, "Password must be at least 6 characters."
     username = username.lower()
     if q("SELECT 1 FROM users WHERE username=?", (username,)):
-        return None, "Ye username pehle se le liya gaya hai."
+        return None, "That username is already taken."
     salt = secrets.token_hex(16)
     try:
         q("INSERT INTO users(username,salt,pw,created) VALUES(?,?,?,?)", (username, salt, _hash(password, salt), time.time()))
     except Exception:
-        return None, "Ye username pehle se le liya gaya hai."
+        return None, "That username is already taken."
     rows = q("SELECT id FROM users WHERE username=?", (username,))
     return _session(rows[0][0]), None
 
@@ -107,7 +107,7 @@ def signup(username, password):
 def login(username, password):
     rows = q("SELECT id,salt,pw FROM users WHERE username=?", ((username or "").lower(),))
     if not rows or not hmac.compare_digest(str(rows[0][2]), _hash(password or "", rows[0][1])):
-        return None, "Username ya password galat hai."
+        return None, "Wrong username or password."
     return _session(rows[0][0]), None
 
 
@@ -203,14 +203,14 @@ def mark_seen(uid, sid, season, episode):
 
 def change_password(uid, token, old, new):
     if len(new or "") < 6:
-        return "Naya password kam se kam 6 characters ka rakho."
+        return "New password must be at least 6 characters."
     r = q("SELECT salt,pw FROM users WHERE id=?", (uid,))
     if not r or not hmac.compare_digest(str(r[0][1]), _hash(old or "", r[0][0])):
-        return "Current password galat hai."
+        return "Current password is incorrect."
     salt = secrets.token_hex(16)
     _ucache.clear()
     q("UPDATE users SET salt=?, pw=? WHERE id=?", (salt, _hash(new, salt), uid))
-    q("DELETE FROM sessions WHERE user_id=? AND token<>?", (uid, _th(token)))  # other devices sign out
+    q("DELETE FROM sessions WHERE user_id=? AND token<>?", (uid, _th(token)))  # sign out other devices
     return None
 
 
@@ -229,10 +229,10 @@ def _uid(username):
 
 def admin_set_password(username, new_pw):
     if len(new_pw or "") < 6:
-        return "Password kam se kam 6 characters ka ho."
+        return "Password must be at least 6 characters."
     uid = _uid(username)
     if uid is None:
-        return "User nahi mila."
+        return "User not found."
     salt = secrets.token_hex(16)
     _ucache.clear()
     q("UPDATE users SET salt=?, pw=? WHERE id=?", (salt, _hash(new_pw, salt), uid))
@@ -243,7 +243,7 @@ def admin_set_password(username, new_pw):
 def admin_delete(username):
     uid = _uid(username)
     if uid is None:
-        return "User nahi mila."
+        return "User not found."
     _ucache.clear()
     for t in ("sessions", "progress", "favs", "seen"):
         q("DELETE FROM %s WHERE user_id=?" % t, (uid,))

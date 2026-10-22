@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <script>
-/* screen mode: html.big = laptop / badi screen / Android TV, html.tv = TV. Force: ?tv=1 ya ?tv=0 (yaad rakha jaata hai) */
+/* screen mode: html.big = laptop / large screen / Android TV, html.tv = TV. Force with ?tv=1 or ?tv=0 (the choice is remembered) */
 (function(){var d=document.documentElement,ua=navigator.userAgent||"",tv=null;
 try{var m=/[?&]tv=(\d)/.exec(location.search);if(m){tv=m[1]==="1";localStorage.setItem("tv",tv?"1":"0")}else{var s=localStorage.getItem("tv");if(s!==null)tv=s==="1"}}catch(e){}
 if(tv===null){var co=false;try{co=matchMedia("(pointer:coarse)").matches}catch(e){}
@@ -12,7 +12,7 @@ function fit(){d.classList.toggle("tv",tv);d.classList.toggle("big",tv||innerWid
 fit();addEventListener("resize",fit)})();
 </script>
 <script>
-/* lite mode = bina animation/blur: low-end phone, reduced-motion. Force: ?lite=1 ya ?lite=0 (yaad rakha jaata hai) */
+/* lite mode = no animation/blur: low-end phones, reduced motion. Force with ?lite=1 or ?lite=0 (the choice is remembered) */
 (function(){var d=document.documentElement,v=null;try{var m=/[?&]lite=(\d)/.exec(location.search);if(m){v=m[1]==="1";localStorage.setItem("lite",v?"1":"0")}else{var s=localStorage.getItem("lite");if(s!==null)v=s==="1"}}catch(e){}
 if(v===null){var mm=function(q){try{return matchMedia(q).matches}catch(e){return false}};v=!Element.prototype.replaceChildren||(navigator.deviceMemory&&navigator.deviceMemory<=1)||mm("(prefers-reduced-motion:reduce)")}
 if(v)d.className+=" lite"})();
@@ -131,7 +131,7 @@ video::cue{font-size:1.1em;background:rgba(0,0,0,.65);color:#fff}
 .spill{height:40px;padding:0 14px;font-size:13px;line-height:1;gap:8px;flex:1 1 0;min-width:0;max-width:none}.spill span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ib{width:40px;height:40px;font-size:16px}.logo{font-size:19px}header{padding-top:calc(8px + env(safe-area-inset-top));padding-bottom:8px;gap:8px}
 
-/* ---- compact layout: chhote cards, patla hero, har screen ke liye ---- */
+/* ---- compact layout: card sizes, slim hero, all screen sizes ---- */
 .hero{min-height:0;height:clamp(190px,52vw,340px);margin:6px 0 6px;border-radius:18px}
 .hero .bg{transform:scale(1.15);filter:blur(22px) brightness(.62) saturate(1.2)}
 .hero .art{top:12%;right:14px;height:62%;width:auto;border-radius:10px}
@@ -156,7 +156,7 @@ h2.sec{font-size:17px;margin:20px 0 10px}
 .player:fullscreen .buf,.player:-webkit-full-screen .buf{top:calc(10px + env(safe-area-inset-top));left:calc(10px + env(safe-area-inset-left))}
 .dlrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
-/* ================= smoothness (watch-anime jaisa) ================= */
+/* ================= smoothness ================= */
 .ti{position:relative;width:20px;height:20px;display:block}
 .ti svg{position:absolute;top:0;left:0;width:20px;height:20px}
 .ti .sun{color:var(--accent2);opacity:0;transform:rotate(-100deg) scale(.3)}
@@ -248,14 +248,14 @@ html.big main.w>.back{text-align:left}
 html.big main.w>.player:fullscreen,html.big main.w>.player:-webkit-full-screen{max-width:none;margin:0}
 html.big .sels{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
 html.big .cbar{padding:14px 16px;gap:14px}
-/* rail arrows (mouse wale laptop ke liye) */
+/* rail arrows (for laptops with a mouse) */
 .rw{position:relative}.rb{display:none}
 @media(hover:hover){html.big .rb{display:flex;position:absolute;z-index:4;top:36%;width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#fff;font-size:28px;line-height:1;align-items:center;justify-content:center;padding:0 0 4px;opacity:0;transition:opacity .2s,transform .12s}
 html.big .rb.l{left:-14px}html.big .rb.r{right:-14px}
 html.big .rw:hover .rb{opacity:1}
 html.big .rw.at0 .rb.l,html.big .rw.at1 .rb.r{opacity:0;pointer-events:none}
 html.big .rb:active{transform:scale(.9)}}
-/* D-pad / keyboard focus: saaf dikhe */
+/* D-pad / keyboard focus: clearly visible */
 :focus{outline:none}
 :focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 html.big .card:focus-visible,html.tv .card:focus-visible{transform:scale(1.05);z-index:3;box-shadow:0 12px 32px rgba(0,0,0,.5);outline-offset:2px}
@@ -328,7 +328,7 @@ const railBox=items=>{const r=h("div",{class:"rail"},items.map(card)),w=h("div",
   r.addEventListener("scroll",upd,{passive:true});setTimeout(upd,80);return w};
 const skRail=()=>[h("h2",{class:"sec"},"\u00a0"),h("div",{class:"rail"},[1,2,3,4].map(()=>h("div",{class:"sk skc"})))];
 
-/* ---------- tabs / sections / All (sab MovieBox API se, kuch hardcode nahi) ---------- */
+/* ---------- tabs / sections / All (all driven by the MovieBox API, nothing hardcoded) ---------- */
 function tabBar(){if(!TABS.length)return null;
   return h("div",{class:"cats toptabs"},TABS.map((t,k)=>h("button",{class:"cat"+((TAB===""&&k===0)||(TAB&&TAB===t.id)?" on":""),onclick:()=>{TAB=k===0?"":(t.id||"");home()}},t.name)))}
 const moreOf=s=>{const m=s.more||{};return{id:String(m.rankingId||m.rankId||m.id||m.opId||""),url:m.url||m.jumpUrl||m.path||m.link||"",title:s.section}};
@@ -340,21 +340,21 @@ function secBlock(s){SEC[s.section]=s.items;SECT[s.section]=s.tabs||[];
   if(s.tabs&&s.tabs.length){const strip=h("div",{class:"cats sub"});
     const pick=async k=>{[...strip.children].forEach((b,j)=>b.classList.toggle("on",j===k));const t=s.tabs[k];let its=t.items;
       if(!its){box.replaceChildren(h("div",{class:"state"},"Loading…"));try{its=(await api("/more?id="+encodeURIComponent(t.id||"")+"&title="+encodeURIComponent(t.name))).items}catch(e){its=[]}}
-      box.replaceChildren(its&&its.length?railBox(its.slice(0,20)):h("div",{class:"state"},"Kuch nahi mila."))};
+      box.replaceChildren(its&&its.length?railBox(its.slice(0,20)):h("div",{class:"state"},"Nothing found."))};
     s.tabs.forEach((t,k)=>strip.append(h("button",{class:"cat"+(k===0?" on":""),onclick:()=>pick(k)},t.name)));out.push(strip)}
   out.push(box);return out}
 async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
   let page=1,busy=false,done=false,cur={id:m.id||"",url:m.url||"",title:m.title||""},gen=0;
   const tabs=SECT[m.title]||[];
-  const grid=h("div",{class:"grid"}),st=h("div",{class:"state"},"Loading…"),btn=h("button",{class:"btn",style:"margin:16px auto;display:none"},"Aur dikhao");
+  const grid=h("div",{class:"grid"}),st=h("div",{class:"state"},"Loading…"),btn=h("button",{class:"btn",style:"margin:16px auto;display:none"},"Load more");
   const strip=tabs.length?h("div",{class:"cats sub"}):null;
   mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),h("h2",{class:"sec"},m.title||"All"),strip,grid,st,btn);
   const load=async()=>{if(busy||done)return;busy=true;btn.style.display="none";const g=gen;
     try{const j=await api("/more?id="+encodeURIComponent(cur.id)+"&url="+encodeURIComponent(cur.url)+"&title="+encodeURIComponent(cur.title)+"&page="+page),it=j.items||[];
       if(g!==gen){busy=false;return}
       if(it.length){it.forEach(i=>grid.append(card(i)));page++;st.textContent="";btn.style.display="block"}
-      else{done=true;const fb=cur.items||SEC[cur.title];if(!grid.children.length&&fb&&fb.length){fb.forEach(i=>grid.append(card(i)));st.textContent=""}else st.textContent=grid.children.length?"Bas itna hi.":"Is category ka poora list nahi mila."}}
-    catch(e){st.textContent="Load nahi hua."}busy=false};
+      else{done=true;const fb=cur.items||SEC[cur.title];if(!grid.children.length&&fb&&fb.length){fb.forEach(i=>grid.append(card(i)));st.textContent=""}else st.textContent=grid.children.length?"That's everything.":"The full list for this category is not available."}}
+    catch(e){st.textContent="Failed to load."}busy=false};
   const pick=k=>{
     const t=k<0?null:tabs[k];gen++;page=1;busy=false;done=false;grid.replaceChildren();st.textContent="Loading…";
     cur=t?{id:String(t.id||""),url:"",title:t.name,items:t.items}:{id:m.id||"",url:m.url||"",title:m.title||""};load()};
@@ -365,7 +365,7 @@ async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
 /* ---------- home ---------- */
 async function home(){
   $app.replaceChildren(h("div",{class:"hero sk"}),...skRail(),...skRail());
-  let R;try{R=HC[TAB]||(HC[TAB]=await api("/home"+(TAB?"?tab="+encodeURIComponent(TAB):"")))}catch(e){$app.replaceChildren(h("div",{class:"state"},"Server se connect nahi hua. Refresh karo."));return}
+  let R;try{R=HC[TAB]||(HC[TAB]=await api("/home"+(TAB?"?tab="+encodeURIComponent(TAB):"")))}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to connect to the server. Please refresh the page."));return}
   if(!TABS.length)TABS=R.tabs||[];const HOME=R.sections||[];
   const ban=(HOME.find(s=>s.section==="Banner")||{items:[]}).items.slice(0,5);
   const rest=HOME.filter(s=>s.section!=="Banner"&&s.items&&s.items.length).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));
@@ -384,7 +384,7 @@ async function home(){
         h("div",{class:"hin"},h("h1",{},b.name||""),h("div",{class:"row2"},
           h("button",{class:"pri",onclick:()=>open(b)},"▶ Watch now"),h("button",{class:"glass",onclick:()=>open(b)},"Details"))));
       clearTimeout(hT);if(N>1)hT=setTimeout(tick,D)}
-    /* swipe left / right se slide badlo */
+    /* swipe left / right to change slides */
     box.addEventListener("touchstart",e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
     box.addEventListener("touchend",e=>{if(N<2)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.5)to(i+(dx<0?1:-1))},{passive:true});
     draw();frag.push(box)}
@@ -395,7 +395,7 @@ async function home(){
       if(p.dur)c.querySelector(".pw").append(h("div",{class:"prog"},h("i",{style:"width:"+Math.min(100,p.pos/p.dur*100)+"%"})))});
     frag.splice(cutAt,0,h("div",{class:"sec-row"},h("h2",{},"▶ Continue watching")),rw)}
   rest.forEach(s=>frag.push(...secBlock(s)));
-  if(!frag.length)frag.push(h("div",{class:"state"},"Kuch nahi mila."));
+  if(!frag.length)frag.push(h("div",{class:"state"},"Nothing found."));
   $app.replaceChildren(...frag)}
 
 /* ---------- search ---------- */
@@ -405,16 +405,16 @@ function openSearch(){if(document.querySelector(".so"))return;
   let t;inp.oninput=()=>{clearTimeout(t);const q=inp.value.trim();if(!q){body.replaceChildren();return}
     t=setTimeout(async()=>{body.replaceChildren(h("div",{class:"state"},"Searching…"));
       try{const j=await api("/search?q="+encodeURIComponent(q));const it=j.items||[];
-        body.replaceChildren(it.length?h("div",{class:"grid"},it.map(i=>{const c=card(i);const f=c.onclick;c.onclick=()=>{close();f()};return c})):h("div",{class:"state"},"“"+q+"” ke liye kuch nahi mila."))}
-      catch(e){body.replaceChildren(h("div",{class:"state"},"Search fail ho gayi."))}},350)};
+        body.replaceChildren(it.length?h("div",{class:"grid"},it.map(i=>{const c=card(i);const f=c.onclick;c.onclick=()=>{close();f()};return c})):h("div",{class:"state"},"No results found for “"+q+"”."))}
+      catch(e){body.replaceChildren(h("div",{class:"state"},"Search failed. Please try again."))}},350)};
   document.body.append(ov);inp.focus()}
 document.getElementById("sbtn").onclick=openSearch;
 document.getElementById("logo").onclick=()=>go("#/");
 
 /* ---------- list ---------- */
-async function listPage(){await meReady;$app.replaceChildren(h("h2",{class:"sec"},"My List"),!ME?h("div",{class:"state"},"Sign in karo taaki list har device pe mile. ",h("button",{class:"pri",style:"margin-top:10px",onclick:authModal},"Sign in")):null,favs.length?h("div",{class:"grid"},favs.map(card)):h("div",{class:"state"},"Abhi list khaali hai. Kisi title pe “Add to My List” dabao."),
+async function listPage(){await meReady;$app.replaceChildren(h("h2",{class:"sec"},"My List"),!ME?h("div",{class:"state"},"Sign in to access your list on every device. ",h("button",{class:"pri",style:"margin-top:10px",onclick:authModal},"Sign in")):null,favs.length?h("div",{class:"grid"},favs.map(card)):h("div",{class:"state"},"Your list is empty. Tap “Add to My List” on any title."),
     ME?(()=>{const hist=PROG.filter(p=>p.slug&&p.sid);return h("div",{},h("h2",{class:"sec"},"History",h("span",{style:"font-weight:400;font-size:13px;color:var(--dim);margin-left:8px"},hist.length+" titles")),
-      hist.length?h("div",{class:"grid"},hist.map(contCard)):h("div",{class:"state"},"Abhi watch history nahi hai."))})():null)}
+      hist.length?h("div",{class:"grid"},hist.map(contCard)):h("div",{class:"state"},"No watch history yet."))})():null)}
 function toggleFav(i){const k=favs.findIndex(f=>f.slug===i.slug);const on=k<0;if(k>=0)favs.splice(k,1);else favs.unshift(i);store.set("mb_favs",JSON.stringify(favs));
   if(ME)api("/api/fav",{item:i,on}).catch(()=>{})}
 
@@ -428,24 +428,24 @@ function modal(...kids){const m=h("div",{class:"modal",onclick:e=>{if(e.target==
 async function loadMe(){if(!store.get("jf_token"))return;
   try{const j=await api("/api/me");ME=j.user;PROG=j.progress||[];
     const srv=j.favs||[];const have=new Set(srv.map(f=>String(f.subject_id)));
-    /* login se pehle local list me jo titles the, unhe server pe bhi daal do */
+    /* titles saved locally before login are also uploaded to the server */
     favs.filter(f=>f.subject_id&&!have.has(String(f.subject_id))).forEach(f=>api("/api/fav",{item:f,on:true}).catch(()=>{}));
     favs=[...favs.filter(f=>f.subject_id&&!have.has(String(f.subject_id))),...srv];store.set("mb_favs",JSON.stringify(favs))}
   catch(e){if(e.status===401)store.set("jf_token","");ME=null;PROG=[]}}
 let meReady=loadMe().then(()=>drawNav());
 function authModal(){let mode="login";
   const u=h("input",{class:"in",placeholder:"Username",autocomplete:"username"}),p=h("input",{class:"in",type:"password",placeholder:"Password",autocomplete:"current-password"}),err=h("div",{class:"err"});
-  const title=h("b",{style:"font-size:18px"},"Sign in"),sw=h("button",{class:"back"},"Naye ho? Account banao"),ok=h("button",{class:"pri"},"Sign in");
+  const title=h("b",{style:"font-size:18px"},"Sign in"),sw=h("button",{class:"back"},"New here? Create an account"),ok=h("button",{class:"pri"},"Sign in");
   const m=modal(title,u,p,err,ok,sw);
-  sw.onclick=()=>{mode=mode==="login"?"signup":"login";title.textContent=ok.textContent=mode==="login"?"Sign in":"Account banao";sw.textContent=mode==="login"?"Naye ho? Account banao":"Account hai? Sign in"};
+  sw.onclick=()=>{mode=mode==="login"?"signup":"login";title.textContent=ok.textContent=mode==="login"?"Sign in":"Create account";sw.textContent=mode==="login"?"New here? Create an account":"Already have an account? Sign in"};
   ok.onclick=async()=>{err.textContent="";ok.disabled=true;try{const j=await api("/api/"+mode,{username:u.value.trim(),password:p.value});store.set("jf_token",j.token);m.remove();await loadMe();drawNav();route()}catch(e){err.textContent=e.message}ok.disabled=false};
   p.onkeydown=e=>{if(e.key==="Enter")ok.click()};u.focus()}
 function accountModal(){
-  const o=h("input",{class:"in",type:"password",placeholder:"Current password",autocomplete:"current-password"}),n=h("input",{class:"in",type:"password",placeholder:"Naya password (min 6)",autocomplete:"new-password"}),msg=h("div",{class:"err"});
-  const save=h("button",{class:"btn"},"Password badlo");
-  save.onclick=async()=>{msg.style.color="var(--accent)";msg.textContent="";try{await api("/api/password",{old:o.value,new:n.value});o.value=n.value="";msg.style.color="#2fd6a1";msg.textContent="Password badal gaya."}catch(e){msg.textContent=e.message}};
+  const o=h("input",{class:"in",type:"password",placeholder:"Current password",autocomplete:"current-password"}),n=h("input",{class:"in",type:"password",placeholder:"New password (min. 6 characters)",autocomplete:"new-password"}),msg=h("div",{class:"err"});
+  const save=h("button",{class:"btn"},"Change password");
+  save.onclick=async()=>{msg.style.color="var(--accent)";msg.textContent="";try{await api("/api/password",{old:o.value,new:n.value});o.value=n.value="";msg.style.color="#2fd6a1";msg.textContent="Password updated."}catch(e){msg.textContent=e.message}};
   const inst=h("button",{class:"btn"},"Install app");
-  inst.onclick=()=>{if(installEvt){installEvt.prompt();installEvt=null}else alert("Install karne ke liye browser menu me “Add to Home screen” chuno (iPhone: Share → Add to Home Screen).")};
+  inst.onclick=()=>{if(installEvt){installEvt.prompt();installEvt=null}else alert("To install, choose “Add to Home screen” from your browser menu (iPhone: Share → Add to Home Screen).")};
   const m=modal(h("b",{style:"font-size:18px"},ME.username),o,n,msg,save,inst,
     h("button",{class:"btn",onclick:async()=>{try{await api("/api/logout",{})}catch(e){}store.set("jf_token","");ME=null;PROG=[];m.remove();drawNav();go("#/");route()}},"Sign out"),
     h("button",{class:"back",onclick:()=>m.remove()},"Close"))}
@@ -463,7 +463,7 @@ function epGrid(seasons,curSe,curEp,pick){let sh=curSe||seasons[0].se;const tabs
   paint();return h("div",{},h("h2",{class:"sec"},"Episodes"),tabs,h("div",{style:"height:10px"}),grid)}
 async function show(slug,id){
   $app.replaceChildren(h("div",{class:"hero sk"}));let d;
-  try{d=await getDet(slug)}catch(e){$app.replaceChildren(h("div",{class:"state"},"Detail load nahi hua."));return}
+  try{d=await getDet(slug)}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to load details."));return}
   await meReady;const last=PROG.find(p=>String(p.sid)===String(id));loadSeen(id);
   const play=(se,ep)=>go("#/watch/"+id+"/"+slug+"/"+se+"/"+ep),first=d.series?d.seasons[0]:{se:0};
   const inList=()=>favs.some(f=>f.slug===slug),item={slug,subject_id:id,name:d.title,poster_url:d.poster,rating:d.rating};
@@ -474,7 +474,7 @@ async function show(slug,id){
       h("div",{class:"dtx"},h("h1",{},d.title),h("div",{style:"color:#d5d8e2;font-size:13px"},[d.rating?"★ "+d.rating:"",d.year,d.series?d.seasons.length+" season"+(d.seasons.length>1?"s":""):"Movie"].filter(Boolean).join(" · ")),
         h("div",{class:"row2"},h("button",{class:"pri",style:"flex:1",onclick:()=>last&&last.slug===slug?play(last.season,last.episode):play(first.se,d.series?1:0)},last&&last.slug===slug?(d.series?"▶ Continue S"+last.season+" E"+last.episode:"▶ Resume"):"▶ Watch now"),fb)))),
     d.genres.length?h("div",{class:"chips",style:"margin-top:14px"},d.genres.map(g=>h("span",{class:"chip"},g))):null,
-    h("p",{class:"desc"},d.desc||"Description available nahi hai."),
+    h("p",{class:"desc"},d.desc||"No description available."),
     d.series?epGrid(d.seasons,0,0,play):null)}
 
 /* ---------- watch ---------- */
@@ -482,7 +482,7 @@ async function watch(id,slug,se,ep){
   $app.classList.add("w");
   se=+se;ep=+ep;let d;try{d=await getDet(slug)}catch(e){d={title:slug,series:se>0,seasons:[],dubs:[]}}
   const video=h("video",{controls:true,controlslist:"nofullscreen",playsinline:true,autoplay:true,preload:"auto"}),buf=h("div",{class:"buf"},"Buffering…"),
-    msg=h("div",{class:"msg"},"Stream dhoondh raha hai… 10–20 second lag sakte hain."),box=h("div",{class:"player"},video,buf,msg);
+    msg=h("div",{class:"msg"},"Finding stream… this may take 10–20 seconds."),box=h("div",{class:"player"},video,buf,msg);
   const title=d.title+(d.series?" · S"+se+" E"+ep:"");
   let next=null;if(d.series){const s=d.seasons.find(x=>x.se===se);if(s&&ep<s.n)next=[se,ep+1];else{const ns=d.seasons.find(x=>x.se>se);if(ns)next=[ns.se,1]}}
   const nUrl=n=>"#/watch/"+id+"/"+slug+"/"+n[0]+"/"+n[1];
@@ -516,13 +516,13 @@ async function watch(id,slug,se,ep){
   ["pointermove","pointerdown","touchstart"].forEach(e=>box.addEventListener(e,wake,{passive:true}));video.addEventListener("pause",wake);video.addEventListener("play",wake);
   const dubs=d.dubs.length>1?h("select",{onchange:e=>{const x=d.dubs[+e.target.value];go("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}},d.dubs.map((x,k)=>h("option",{value:k,selected:String(x.id)===String(id)},x.lang))):null;
   const sels=h("div",{class:"sels"},dubs?fld("Language",dubs):null,fld("Quality",srcSel),fld("Subtitles",subSel),fld("Screen",fit),fld("Speed",speed));
-  const cbar=h("div",{class:"cbar"},sels,h("div",{class:"crow"},h("div",{class:"seekgrp"},sb("−10s",-10),sb("−0.1",-.1),sb("+0.1",.1),sb("+10s",10)),fs,dlb),dlMsg,h("div",{class:"muted",style:"font-size:12px"},"Audio thoda off lage to 0.1 buttons se adjust karo."));
+  const cbar=h("div",{class:"cbar"},sels,h("div",{class:"crow"},h("div",{class:"seekgrp"},sb("−10s",-10),sb("−0.1",-.1),sb("+0.1",.1),sb("+10s",10)),fs,dlb),dlMsg,h("div",{class:"muted",style:"font-size:12px"},"If the audio seems out of sync, fine-tune it with the 0.1s buttons."));
   mount(h("button",{class:"back",onclick:()=>go("#/show/"+slug+"/"+id)},"← "+d.title),h("h2",{style:"margin:0 0 12px;font-size:19px"},title),box,nextBar,cbar,
     d.series?h("div",{class:"panel"},h("label",{class:"chk"},auto,"Play next episode automatically")):null,
     d.series&&d.seasons.length?epGrid(d.seasons,se,ep,(s,e)=>go(nUrl([s,e]))):null);
   const mine=()=>document.body.contains(box);
-  let data;try{data=await api("/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+(d.series?se:0)+"&ep="+(d.series?ep:0))}catch(e){if(mine())msg.textContent="Server error. Thodi der baad try karo.";return}
-  if(!mine())return;const src=data.sources||[];if(!src.length){msg.textContent=data.note||"Is title ka stream available nahi hai.";return}
+  let data;try{data=await api("/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+(d.series?se:0)+"&ep="+(d.series?ep:0))}catch(e){if(mine())msg.textContent="Server error. Please try again shortly.";return}
+  if(!mine())return;const src=data.sources||[];if(!src.length){msg.textContent=data.note||"No stream is available for this title.";return}
   await meReady;if(!mine())return;loadSeen(id);
   const key="pos:"+id+":"+se+":"+ep,sp=ME&&PROG.find(p=>String(p.sid)===String(id)&&+p.season===+se&&+p.episode===+ep);
   let resume=(sp&&sp.pos>10&&sp.dur-sp.pos>30?sp.pos:0)||+store.get(key)||0,cur=0;
@@ -533,10 +533,10 @@ async function watch(id,slug,se,ep){
       if(lu){const q=new URL(lu,location.href).searchParams.get("u");if(q)raw=q}}
     const nm=(title+(x.kind==="hls"?"":" "+x.label)).replace(/[^\w\- ]+/g,"").trim().replace(/ +/g,"_")||"video";
     const dl="/dl?u="+encodeURIComponent(raw)+"&name="+encodeURIComponent(nm);
-    dlb.disabled=true;dlMsg.textContent="Check ho raha hai…";
-    try{const r=await fetch(dl+"&check=1"),j=await r.json().catch(()=>({}));if(!r.ok||!j.ok)throw new Error(j.error||"Is stream ka download available nahi hai.");
+    dlb.disabled=true;dlMsg.textContent="Checking…";
+    try{const r=await fetch(dl+"&check=1"),j=await r.json().catch(()=>({}));if(!r.ok||!j.ok)throw new Error(j.error||"Download is not available for this stream.");
       const a=h("a",{href:dl});document.body.append(a);a.click();setTimeout(()=>a.remove(),1000);
-      dlMsg.textContent="Download shuru ho gaya. Browser ke downloads mein dekho. File VLC ya MX Player mein chalegi."}
+      dlMsg.textContent="Download started. Check your browser's downloads. The file will play in VLC or MX Player."}
     catch(e){dlMsg.textContent=e.message}dlb.disabled=false};
   video.onended=()=>{store.set(key,"0");saveProg(true);if(!next||!auto.checked)return;let n=5;const lb=h("span",{},"Next episode in "+n+"s"),bar=h("div",{class:"cd"},lb,h("div",{},h("button",{class:"go",onclick:()=>{clearInterval(t);go(nUrl(next))}},"Play now"),h("button",{onclick:()=>{clearInterval(t);bar.remove()}},"Cancel")));
     box.append(bar);const t=setInterval(()=>{n--;lb.textContent="Next episode in "+n+"s";if(n<=0){clearInterval(t);go(nUrl(next))}},1000);timers.push(t)};
@@ -545,8 +545,8 @@ async function watch(id,slug,se,ep){
   function play(i){cur=i;tried.add(i);if(hls){hls.destroy();hls=null}msg.style.display="flex";msg.textContent="Loading…";sels.querySelectorAll(".dyn").forEach(x=>x.remove());
     srcSel.replaceChildren(...src.map((s,j)=>h("option",{value:j,selected:j===i},s.label)));
     const x=src[i],hide=()=>{msg.style.display="none";buf.style.display="none"};
-    const bad=t=>{msg.style.display="flex";msg.replaceChildren(h("div",{},t||"Ye stream load nahi hui.",h("div",{style:"margin-top:12px"},h("button",{class:"chip",onclick:()=>{tried.clear();play(cur)}},"↻ Retry"))))};
-    const fb=()=>{const n=src.findIndex((_,j)=>!tried.has(j));if(n<0)return false;msg.textContent="Dusra source try ho raha hai…";play(n);return true};
+    const bad=t=>{msg.style.display="flex";msg.replaceChildren(h("div",{},t||"This stream failed to load.",h("div",{style:"margin-top:12px"},h("button",{class:"chip",onclick:()=>{tried.clear();play(cur)}},"↻ Retry"))))};
+    const fb=()=>{const n=src.findIndex((_,j)=>!tried.has(j));if(n<0)return false;msg.textContent="Trying another source…";play(n);return true};
     video.onplaying=hide;video.oncanplay=hide;video.onloadeddata=hide;
     video.onwaiting=()=>{if(msg.style.display!=="flex")buf.style.display="block"};
     video.onloadedmetadata=()=>{if(resume>10){video.currentTime=resume;resume=0}};
@@ -561,7 +561,7 @@ async function watch(id,slug,se,ep){
       hls.on(Hls.Events.ERROR,(_e,er)=>{if(!er.fatal)return;
         if(er.type===Hls.ErrorTypes.NETWORK_ERROR&&nt++<3){buf.style.display="block";setTimeout(()=>hls&&hls.startLoad(video.currentTime||-1),1500*nt)}
         else if(er.type===Hls.ErrorTypes.MEDIA_ERROR&&mt++<3)hls.recoverMediaError();
-        else if(!fb())bad("Stream load nahi hui. Thodi der baad try karo.")})}
+        else if(!fb())bad("The stream failed to load. Please try again shortly.")})}
     else{video.src=x.url;video.play().catch(hide)}}
   api("/api/captions/"+id+"?detail_path="+encodeURIComponent(slug)+"&id="+encodeURIComponent((data.cap&&data.cap.id)||"")+"&fmt="+((data.cap&&data.cap.fmt)||"MP4")).then(j=>{if(!mine())return;caps=j.captions||[];
     if(!caps.length){subSel.firstChild.textContent="None available";return}
