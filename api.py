@@ -264,20 +264,36 @@ async def more(id: str = "", url: str = "", title: str = "", page: int = 1, per:
 
 @app.get("/filter")
 async def filter_list(query: str, page: int = 1, per: int = 24):
-    """Category lists (All Movies / All Dramas / Punjabi / Bengali ...). `query` is the raw query string MovieBox supplies for each filter."""
+    """Category lists (All Movies / All Dramas / Punjabi / Bengali ...). `query` is the raw query string MovieBox supplies for each filter.
+    The real API path is not documented, so several likely endpoints (POST and GET) are tried one by one."""
     from urllib.parse import parse_qsl, urlencode
     prm = dict(parse_qsl(query, keep_blank_values=True))
-    path = prm.pop("type", "")
-    if not path.startswith("/"):
-        return {"items": [], "page": page, "tried": []}
-    base = f"{API}{path}?{urlencode(prm)}"
+    prm.pop("type", None)
+    try:
+        ft = json.loads(prm.pop("filterType", "{}"))
+    except Exception:
+        ft = {}
+    tab = prm.get("tabId", "")
+    body = {**ft, "tabId": tab, "channelId": tab, "page": page, "perPage": per}
+    flat = urlencode({**ft, "tabId": tab, "channelId": tab, "page": page, "perPage": per})
+    cands = [
+        ("POST", f"{API}/subject/filter", body),
+        ("POST", f"{API}/home/movieFilter", body),
+        ("POST", f"{API}/subject/browse", body),
+        ("GET", f"{API}/subject/filter?{flat}", None),
+        ("GET", f"{API}/home/movieFilter?tabId={tab}&filterType={quote(json.dumps(ft, separators=(',', ':')), safe='')}&page={page}&perPage={per}", None),
+    ]
     tried = []
-    for extra in (f"&page={page}&perPage={per}", f"&pageNo={page}&pageSize={per}"):
-        d = await call(base + extra)
+    for method, u, payload in cands:
+        d = await call(u, payload) if method == "POST" else await call(u)
         its = _extract(d)
-        tried.append({"url": base + extra, "n": len(its), "err": d.get("_http") or d.get("_err")})
+        err = d.get("_http") or d.get("_err")
+        row = {"m": method, "url": u[:140], "n": len(its), "err": err}
+        if not its and not err:
+            row["head"] = json.dumps(d, ensure_ascii=False)[:300]
+        tried.append(row)
         if its:
-            return {"items": its, "page": page, "tried": tried}
+            return {"items": its, "page": page, "via": row, "tried": tried}
     return {"items": [], "page": page, "tried": tried}
 
 
