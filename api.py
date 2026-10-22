@@ -181,7 +181,9 @@ def _subtabs(op):
                 if not n:
                     continue
                 subs = t.get("subjects")
-                tabs.append({"name": n, "id": _tid(t), "items": [_item(s) for s in subs] if isinstance(subs, list) else None})
+                img = t.get("image")
+                tabs.append({"name": n, "id": _tid(t), "query": t.get("query") or "", "image": img.get("url") if isinstance(img, dict) else None,
+                             "items": [_item(s) for s in subs] if isinstance(subs, list) else None})
             if tabs:
                 return tabs
     return None
@@ -196,7 +198,8 @@ def _sections(d):
         more = {k: op[k] for k in _ID_KEYS if op.get(k) not in (None, "")}
         out.append({"section": op.get("title") or op.get("type"),
                     "items": [i for i in (_item(s) for s in op.get("subjects") or []) if i["slug"]],
-                    "more": more or None, "tabs": _subtabs(op)})
+                    "more": more or None, "tabs": _subtabs(op),
+                    "kind": "filter" if op.get("type") == "FILTER" else None})
     return out
 
 
@@ -217,7 +220,7 @@ def _extract(d):
     if isinstance(x, list):
         lst = x
     elif isinstance(x, dict):
-        lst = next((x[k] for k in ("subjectList", "subjects", "items", "list", "contents") if isinstance(x.get(k), list)), [])
+        lst = next((x[k] for k in ("subjectList", "subjects", "items", "list", "contents", "records") if isinstance(x.get(k), list)), [])
     else:
         lst = []
     its = (_item(s.get("subject") if isinstance(s.get("subject"), dict) else s) for s in lst if isinstance(s, dict))
@@ -256,6 +259,25 @@ async def more(id: str = "", url: str = "", title: str = "", page: int = 1, per:
         tried.append({"url": u, "n": len(its), "err": d.get("_http") or d.get("_err")})
         if its:
             return {"items": its, "page": page, "via": u, "tried": tried}
+    return {"items": [], "page": page, "tried": tried}
+
+
+@app.get("/filter")
+async def filter_list(query: str, page: int = 1, per: int = 24):
+    """Category lists (All Movies / All Dramas / Punjabi / Bengali ...). `query` is the raw query string MovieBox supplies for each filter."""
+    from urllib.parse import parse_qsl, urlencode
+    prm = dict(parse_qsl(query, keep_blank_values=True))
+    path = prm.pop("type", "")
+    if not path.startswith("/"):
+        return {"items": [], "page": page, "tried": []}
+    base = f"{API}{path}?{urlencode(prm)}"
+    tried = []
+    for extra in (f"&page={page}&perPage={per}", f"&pageNo={page}&pageSize={per}"):
+        d = await call(base + extra)
+        its = _extract(d)
+        tried.append({"url": base + extra, "n": len(its), "err": d.get("_http") or d.get("_err")})
+        if its:
+            return {"items": its, "page": page, "tried": tried}
     return {"items": [], "page": page, "tried": tried}
 
 
