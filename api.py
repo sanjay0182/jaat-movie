@@ -327,6 +327,42 @@ async def diag():
     return out
 
 
+@app.get("/discover")
+async def discover():
+    """Debug: probes home tabs 0-12, filter variants (genre / platform) and a few candidate endpoints in one go."""
+    async def tab(t):
+        d = await call(_home_url(str(t)))
+        ops = (d.get("data") or {}).get("operatingList") or []
+        return str(t), {"err": d.get("_http") or d.get("_err"), "n_ops": len(ops),
+                        "titles": [(op.get("title") or op.get("type")) for op in ops][:9],
+                        "filters": [f.get("title") for op in ops if op.get("type") == "FILTER" for f in (op.get("filters") or [])][:25]}
+
+    base = {"classify": "All", "country": "All", "genre": "All", "sort": "ForYou", "year": "All", "page": 1, "perPage": 6}
+
+    async def flt(name, extra):
+        body = {**base, **extra}
+        d = await call(f"{API}/subject/filter", body)
+        its = _extract(d)
+        return name, {"n": len(its), "err": d.get("_http") or d.get("_err"), "names": [i["name"] for i in its[:4]]}
+
+    async def probe(path):
+        d = await call(API + path)
+        return path, d.get("_http") or ("ok:" + json.dumps(d, ensure_ascii=False)[:160])
+
+    tabs = dict(await asyncio.gather(*[tab(t) for t in range(0, 13)]))
+    tests = dict(await asyncio.gather(
+        flt("tv_romance", {"tabId": "5", "channelId": "5", "genre": "Romance"}),
+        flt("tv_all", {"tabId": "5", "channelId": "5"}),
+        flt("tab3_all", {"tabId": "3", "channelId": "3"}),
+        flt("tab4_all", {"tabId": "4", "channelId": "4"}),
+        flt("tv_platform_netflix", {"tabId": "5", "channelId": "5", "platform": "Netflix"}),
+        flt("tv_classify_netflix", {"tabId": "5", "channelId": "5", "classify": "Netflix"}),
+    ))
+    paths = ["/subject/filter-options", "/subject/filter/options", "/home/filter", "/subject/genres", "/subject/platform", "/subject/platform-list", "/subject/filter/config"]
+    probes = dict(await asyncio.gather(*[probe(p) for p in paths]))
+    return {"tabs": tabs, "filter_tests": tests, "probes": probes}
+
+
 @app.get("/peek")
 async def peek(tab: str = ""):
     """Debug: open /peek in the browser to see the raw platformList, the Categories (FILTER) block and one sample section."""
