@@ -6,9 +6,16 @@ import json
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 app = FastAPI(title="MovieBox API (fixed)", version="1.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+@app.get("/")
+async def serve_ui():
+    # index.html isi folder mein hona chahiye, api.py ke saath
+    return FileResponse("index.html")
 
 API = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"

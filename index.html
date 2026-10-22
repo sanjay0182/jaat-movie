@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0d">
+<title>MovieBox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,800;1,900&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#0a0a0d;--panel:#141419;--panel2:#1c1c24;--line:#25252f;--text:#f2f3f7;--dim:#9a9fb0;--accent:#ff5330;--accent2:#ff8f45;--green:#2fd6a1;--glass:rgba(10,10,13,.88);--shadow:0 8px 26px rgba(0,0,0,.45);--radius:14px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{overflow-x:hidden}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 "Poppins",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,select,input{font:inherit;color:inherit;background:none;border:none}
+button{cursor:pointer}
+a{color:inherit;text-decoration:none}
+img{display:block;max-width:100%}
+::-webkit-scrollbar{display:none}
+*{scrollbar-width:none}
+
+header{position:sticky;top:0;z-index:20;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line)}
+.logo{font-weight:900;font-style:italic;font-size:21px;cursor:pointer;white-space:nowrap;letter-spacing:-.5px;text-transform:uppercase;flex-shrink:0}
+.logo b{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent;padding-right:3px}
+.search-wrap{flex:1;position:relative}
+.in{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:10px 16px;font-size:14px;outline:none}
+.in:focus{border-color:var(--accent)}
+.in::placeholder{color:var(--dim)}
+
+#app{padding-bottom:84px;min-height:70vh}
+
+.hero{position:relative;height:56vw;max-height:420px;min-height:220px;overflow:hidden;border-radius:0 0 18px 18px;background:var(--panel)}
+.hero img{width:100%;height:100%;object-fit:cover;object-position:top}
+.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,var(--bg) 0%,rgba(10,10,13,.25) 55%,transparent 100%)}
+.hero-info{position:absolute;left:0;right:0;bottom:16px;padding:0 16px;z-index:2}
+.hero-info h1{margin:0 0 6px;font-size:1.5rem;font-weight:800;text-shadow:0 2px 10px rgba(0,0,0,.6)}
+.hero-info .rt{display:inline-flex;align-items:center;gap:4px;font-size:.8rem;color:var(--accent2);font-weight:700;background:rgba(0,0,0,.45);padding:3px 9px;border-radius:999px;margin-bottom:8px}
+.hero-btns{display:flex;gap:10px;margin-top:10px}
+.btn{padding:10px 18px;border-radius:10px;font-weight:700;font-size:.85rem;display:inline-flex;align-items:center;gap:6px}
+.btn.pri{background:var(--text);color:#0a0a0d}
+.btn.sec{background:rgba(255,255,255,.14);color:var(--text);backdrop-filter:blur(6px)}
+
+section.row{margin:20px 0}
+.row h2{font-size:1rem;font-weight:700;margin:0 0 10px;padding:0 16px}
+.scroller{display:flex;gap:10px;overflow-x:auto;padding:0 16px 4px;scroll-snap-type:x proximity}
+.card{flex:0 0 auto;width:118px;scroll-snap-align:start;text-align:left;position:relative}
+.card .thumb{width:118px;height:168px;border-radius:10px;overflow:hidden;background:var(--panel2);position:relative}
+.card .thumb img{width:100%;height:100%;object-fit:cover}
+.card .rt{position:absolute;top:6px;left:6px;font-size:.65rem;font-weight:700;background:rgba(0,0,0,.6);color:var(--accent2);padding:2px 6px;border-radius:999px}
+.card .nm{font-size:.78rem;margin-top:6px;font-weight:600;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;padding:12px 16px}
+.grid .card{width:auto}
+.grid .card .thumb{width:100%;height:0;padding-bottom:142%}
+.grid .card .thumb img{position:absolute;inset:0}
+
+.state{padding:60px 16px;text-align:center;color:var(--dim)}
+.skrow{display:flex;gap:10px;overflow:hidden;padding:0 16px}
+.sk{width:118px;height:168px;border-radius:10px;background:linear-gradient(100deg,var(--panel2) 30%,var(--line) 50%,var(--panel2) 70%);background-size:200% 100%;animation:shine 1.3s infinite}
+@keyframes shine{to{background-position:-200% 0}}
+
+/* Detail page */
+.detail-hero{position:relative;height:50vw;max-height:380px;min-height:200px;background:var(--panel)}
+.detail-hero img{width:100%;height:100%;object-fit:cover}
+.detail-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,var(--bg) 5%,transparent 60%)}
+.back-btn{position:absolute;top:calc(14px + env(safe-area-inset-top));left:14px;z-index:5;width:38px;height:38px;border-radius:999px;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
+.d-body{padding:0 16px;margin-top:-50px;position:relative;z-index:2}
+.d-title{font-size:1.4rem;font-weight:800;margin:0 0 8px}
+.d-meta{display:flex;gap:10px;flex-wrap:wrap;color:var(--dim);font-size:.82rem;margin-bottom:12px}
+.d-meta span{display:inline-flex;align-items:center;gap:4px}
+.d-desc{color:var(--dim);font-size:.88rem;line-height:1.5;margin-bottom:16px}
+.d-desc.clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+
+.sel-row{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.sel{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-weight:600;font-size:.85rem;display:flex;align-items:center;gap:8px}
+.sel select{background:none}
+.stepper{display:flex;align-items:center;gap:0;background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stepper button{padding:9px 14px;font-weight:800}
+.stepper span{min-width:34px;text-align:center;font-weight:700}
+
+.play-big{width:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));color:#fff;padding:14px;border-radius:12px;font-weight:800;font-size:.95rem;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:24px}
+
+/* Player */
+.player-wrap{position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column}
+.player-wrap video{width:100%;height:100%;object-fit:contain;flex:1}
+.player-top{position:absolute;top:0;left:0;right:0;padding:calc(14px + env(safe-area-inset-top)) 14px 30px;background:linear-gradient(180deg,rgba(0,0,0,.75),transparent);z-index:2;display:flex;align-items:center;gap:12px}
+.player-top .ttl{font-weight:700;font-size:.95rem;flex:1}
+
+nav#nav{position:fixed;bottom:0;left:0;right:0;z-index:20;background:var(--glass);backdrop-filter:blur(16px);border-top:1px solid var(--line);display:flex;padding:8px env(safe-area-inset-right) calc(8px + env(safe-area-inset-bottom)) env(safe-area-inset-left)}
+nav#nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:.68rem;color:var(--dim);font-weight:600;padding:4px}
+nav#nav button.on{color:var(--text)}
+nav#nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo" onclick="go('')"><b>Movie</b>Box</div>
+  <div class="search-wrap">
+    <input id="q" class="in" placeholder="Search movies, series, anime..." />
+  </div>
+</header>
+<div id="app"></div>
+<nav id="nav"></nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js" crossorigin="anonymous"></script>
+<script>
+"use strict";
+
+/* ===== CONFIG =====
+   BASE khaali rakho agar yeh HTML wahi server se serve ho raha hai jahan api.py chal raha hai.
+   Alag domain pe hai to seedha apna API URL daal do: const BASE = "https://youtab.blitz.cloud";
+*/
+const BASE = "";
+
+const $app = document.getElementById("app");
+const $q = document.getElementById("q");
+const $nav = document.getElementById("nav");
+
+let HOME = null;
+let favs = JSON.parse(localStorage.getItem("mb_favs") || "[]");
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, "");
+    else if (v !== false && v != null) el.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) {
+    if (c != null) el.append(c.nodeType ? c : document.createTextNode(c));
+  }
+  return el;
+}
+
+async function api(path) {
+  const r = await fetch(BASE + path);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+const go = (x) => { location.hash = x ? "#/" + x : "#/"; };
+
+/* ---------- bottom nav ---------- */
+const IC = {
+  home: '<path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  list: '<path d="M12 21s-7-4.6-9.3-9.2C1.2 8.6 3 5 6.4 5c2 0 3.6 1.2 5.6 3.4C14 6.2 15.6 5 17.6 5 21 5 22.8 8.6 21.3 11.8 19 16.4 12 21 12 21z"/>'
+};
+function drawNav() {
+  const cur = location.hash.replace(/^#\/?/, "").split("/")[0];
+  const items = [
+    ["home", "home", "Home", () => { $q.value = ""; go(""); }],
+    ["search", "search", "Search", () => { go("search"); setTimeout(() => $q.focus(), 50); }],
+    ["list", "list", "My List", () => go("list")]
+  ];
+  $nav.replaceChildren(...items.map(([k, i, l, f]) => {
+    const active = (k === "home" && !["search", "show", "watch", "list"].includes(cur)) || k === cur;
+    const b = h("button", { class: active ? "on" : "", onclick: f }, l);
+    b.insertAdjacentHTML("afterbegin", '<svg viewBox="0 0 24 24">' + IC[i] + "</svg>");
+    return b;
+  }));
+}
+
+/* ---------- skeleton ---------- */
+function skRow() {
+  return h("section", { class: "row" },
+    h("h2", {}, "\u00a0"),
+    h("div", { class: "skrow" }, ...Array(6).fill(0).map(() => h("div", { class: "sk" })))
+  );
+}
+function skHome() {
+  return [h("div", { class: "hero sk", style: "border-radius:0 0 18px 18px" }), skRow(), skRow(), skRow()];
+}
+
+/* ---------- cards ---------- */
+function thumbImg(item) {
+  return h("img", { src: item.poster_url || "", loading: "lazy", alt: item.name || "" });
+}
+function card(item) {
+  return h("button", { class: "card", onclick: () => go("show/" + item.slug + "/" + item.subject_id) },
+    h("div", { class: "thumb" },
+      thumbImg(item),
+      item.rating ? h("div", { class: "rt" }, "\u2605 " + item.rating) : null
+    ),
+    h("div", { class: "nm" }, item.name || "")
+  );
+}
+
+/* ---------- HOME ---------- */
+async function loadHome() {
+  if (HOME) return HOME;
+  const j = await api("/home");
+  HOME = j.sections || [];
+  return HOME;
+}
+
+async function renderHome() {
+  $app.replaceChildren(...skHome());
+  let sections;
+  try { sections = await loadHome(); }
+  catch (e) { $app.replaceChildren(h("div", { class: "state" }, "Server se connect nahi ho paya. Dobara try karo.")); return; }
+
+  const banner = sections.find(s => s.section === "Banner");
+  const rest = sections.filter(s => s.section !== "Banner" && s.items && s.items.length);
+
+  const frag = [];
+
+  if (banner && banner.items && banner.items.length) {
+    const b = banner.items[0];
+    frag.push(
+      h("div", { class: "hero" },
+        h("img", { src: b.poster_url || "" }),
+        h("div", { class: "hero-info" },
+          h("h1", {}, b.name || ""),
+          h("div", { class: "hero-btns" },
+            h("button", { class: "btn pri", onclick: () => go("show/" + b.slug + "/" + b.subject_id) },
+              "\u25b6 Play"),
+            h("button", { class: "btn sec", onclick: () => go("show/" + b.slug + "/" + b.subject_id) },
+              "Details")
+          )
+        )
+      )
+    );
+  }
+
+  for (const sec of rest) {
+    frag.push(
+      h("section", { class: "row" },
+        h("h2", {}, sec.section),
+        h("div", { class: "scroller" }, ...sec.items.slice(0, 20).map(card))
+      )
+    );
+  }
+
+  if (!frag.length) frag.push(h("div", { class: "state" }, "Kuch nahi mila."));
+  $app.replaceChildren(...frag);
+}
+
+/* ---------- SEARCH ---------- */
+let searchTimer = null;
+async function doSearch(qv) {
+  if (!qv) { $app.replaceChildren(h("div", { class: "state" }, "Kuch type karo search karne ke liye.")); return; }
+  $app.replaceChildren(h("div", { class: "grid" }, ...Array(10).fill(0).map(() => h("div", { class: "sk" }))));
+  try {
+    const j = await api("/search?q=" + encodeURIComponent(qv));
+    const items = j.items || [];
+    if (!items.length) { $app.replaceChildren(h("div", { class: "state" }, '"' + qv + '" ke liye kuch nahi mila.')); return; }
+    $app.replaceChildren(h("div", { class: "grid" }, ...items.map(card)));
+  } catch (e) {
+    $app.replaceChildren(h("div", { class: "state" }, "Search fail ho gayi."));
+  }
+}
+$q.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const v = $q.value.trim();
+  if (location.hash.replace(/^#\/?/, "").split("/")[0] !== "search") go("search");
+  searchTimer = setTimeout(() => doSearch(v), 400);
+});
+
+/* ---------- LIST (favorites, local only) ---------- */
+function renderList() {
+  if (!favs.length) { $app.replaceChildren(h("div", { class: "state" }, "Abhi tak kuch bhi list mein add nahi kiya.")); return; }
+  $app.replaceChildren(h("div", { class: "grid" }, ...favs.map(card)));
+}
+function toggleFav(item) {
+  const i = favs.findIndex(f => f.slug === item.slug);
+  if (i >= 0) favs.splice(i, 1); else favs.unshift(item);
+  localStorage.setItem("mb_favs", JSON.stringify(favs));
+}
+
+/* ---------- DETAIL ---------- */
+async function renderDetail(slug, subjectId) {
+  $app.replaceChildren(h("div", { class: "detail-hero sk" }));
+  let d;
+  try { d = await api("/detail/" + slug); }
+  catch (e) { $app.replaceChildren(h("div", { class: "state" }, "Detail load nahi hua.")); return; }
+
+  const sub = (d.data && d.data.subject) || {};
+  const title = sub.title || slug;
+  const poster = (sub.cover && sub.cover.url) || "";
+  const desc = sub.description || sub.desc || "Koi description available nahi hai.";
+  const rating = sub.imdbRatingValue;
+  const year = (sub.releaseDate || "").slice(0, 4);
+  const isSeries = !!(sub.ongoing || (d.data && d.data.resource && d.data.resource.length > 1) || (sub.genre || "").toLowerCase().includes("series"));
+
+  let se = 1, ep = 1;
+
+  function playerUrl() {
+    return BASE + "/api/stream/" + subjectId + "?detail_path=" + slug + "&se=" + se + "&ep=" + ep;
+  }
+
+  const seEl = h("span", {}, String(se));
+  const epEl = h("span", {}, String(ep));
+
+  const seasonStepper = h("div", { class: "stepper" },
+    h("button", { onclick: () => { if (se > 1) { se--; seEl.textContent = se; } } }, "\u2212"),
+    seEl,
+    h("button", { onclick: () => { se++; seEl.textContent = se; } }, "+")
+  );
+  const epStepper = h("div", { class: "stepper" },
+    h("button", { onclick: () => { if (ep > 1) { ep--; epEl.textContent = ep; } } }, "\u2212"),
+    epEl,
+    h("button", { onclick: () => { ep++; epEl.textContent = ep; } }, "+")
+  );
+
+  const selRow = isSeries
+    ? h("div", { class: "sel-row" },
+        h("div", { class: "sel" }, "Season", seasonStepper),
+        h("div", { class: "sel" }, "Episode", epStepper)
+      )
+    : null;
+
+  const isFav = favs.some(f => f.slug === slug);
+  const favBtn = h("button", {
+    class: "btn sec",
+    onclick: (e) => {
+      toggleFav({ slug, subject_id: subjectId, name: title, poster_url: poster, rating });
+      e.target.textContent = favs.some(f => f.slug === slug) ? "\u2713 In My List" : "+ My List";
+    }
+  }, isFav ? "\u2713 In My List" : "+ My List");
+
+  $app.replaceChildren(
+    h("div", { class: "detail-hero" },
+      h("button", { class: "back-btn", onclick: () => history.back() }, "\u2190"),
+      h("img", { src: poster })
+    ),
+    h("div", { class: "d-body" },
+      h("h1", { class: "d-title" }, title),
+      h("div", { class: "d-meta" },
+        rating ? h("span", {}, "\u2605 " + rating) : null,
+        year ? h("span", {}, year) : null
+      ),
+      h("p", { class: "d-desc clamp" }, desc),
+      selRow,
+      h("button", {
+        class: "play-big",
+        onclick: () => go("watch/" + subjectId + "/" + slug + "/" + se + "/" + ep)
+      }, "\u25b6 Play"),
+      favBtn
+    )
+  );
+}
+
+/* ---------- WATCH / PLAYER ---------- */
+let hlsInst = null;
+function killPlayer() {
+  if (hlsInst) { hlsInst.destroy(); hlsInst = null; }
+}
+
+async function renderWatch(subjectId, slug, se, ep) {
+  killPlayer();
+  const wrap = h("div", { class: "player-wrap" },
+    h("div", { class: "player-top" },
+      h("button", { onclick: () => { killPlayer(); history.back(); } }, "\u2190"),
+      h("div", { class: "ttl" }, "Loading\u2026")
+    ),
+    h("video", { controls: true, autoplay: true, playsinline: true })
+  );
+  document.body.appendChild(wrap);
+  const video = wrap.querySelector("video");
+  const ttl = wrap.querySelector(".ttl");
+
+  try {
+    const j = await api("/api/stream/" + subjectId + "?detail_path=" + slug + "&se=" + se + "&ep=" + ep);
+    ttl.textContent = slug.replace(/-/g, " ") + "  \u2022  S" + se + "E" + ep;
+
+    if (!j.has_resource) {
+      ttl.textContent = j.note || "Stream nahi mila.";
+      return;
+    }
+
+    const mp4 = (j.sources || []).find(s => s.format === "MP4" || s.url);
+    const hlsUrl = (j.hls && j.hls[0] && (j.hls[0].url || j.hls[0])) || null;
+
+    if (hlsUrl && window.Hls && Hls.isSupported()) {
+      hlsInst = new Hls();
+      hlsInst.loadSource(hlsUrl);
+      hlsInst.attachMedia(video);
+    } else if (mp4 && mp4.url) {
+      video.src = mp4.url;
+    } else if (hlsUrl) {
+      video.src = hlsUrl;
+    } else {
+      ttl.textContent = "Koi playable source nahi mila.";
+    }
+  } catch (e) {
+    ttl.textContent = "Stream fetch fail ho gaya.";
+  }
+}
+
+/* ---------- ROUTER ---------- */
+async function route() {
+  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  document.querySelectorAll(".player-wrap").forEach(p => { if (parts[0] !== "watch") { killPlayer(); p.remove(); } });
+  drawNav();
+  scrollTo(0, 0);
+
+  if (!parts.length) { $q.value = ""; return renderHome(); }
+
+  if (parts[0] === "search") { $q.focus(); return doSearch($q.value.trim()); }
+  if (parts[0] === "list") return renderList();
+  if (parts[0] === "show") return renderDetail(parts[1], parts[2]);
+  if (parts[0] === "watch") return renderWatch(parts[1], parts[2], parts[3] || 1, parts[4] || 1);
+
+  return renderHome();
+}
+
+addEventListener("hashchange", route);
+route();
+</script>
+</body>
+</html>
