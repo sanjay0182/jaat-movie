@@ -1,19 +1,18 @@
 """
-MovieBox API — mb4.py jaisa hi approach (same headers, same logic)
-Sirf FastAPI mein wrap kiya hai taaki online deploy ho sake.
+MovieBox API — mb4.py jaisa hi header-style, lekin ab token HAR request se pehle
+guarantee se fetch hota hai (yehi pichla bug tha — IP block nahi tha).
 """
 import json
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="MovieBox API (mb4-style)", version="1.0")
+app = FastAPI(title="MovieBox API (fixed)", version="1.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 API = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 
-# mb4.py jaisa hi minimal header set — sec-ch-ua / sec-fetch wagera NAHI
 H = {
     "User-Agent": UA,
     "Referer": "https://moviebox.ph/",
@@ -27,11 +26,37 @@ H = {
 _token = ""
 
 
+async def _ensure_token():
+    """Token khaali ho to guest token fetch karo /home se — har request se pehle guarantee."""
+    global _token
+    if _token:
+        return _token
+    async with httpx.AsyncClient(follow_redirects=True, timeout=25) as client:
+        try:
+            r = await client.get(f"{API}/home?host=moviebox.ph", headers=H)
+        except Exception:
+            return ""
+        xu = r.headers.get("x-user")
+        if xu:
+            try:
+                tok = json.loads(xu).get("token")
+                if tok:
+                    _token = tok
+            except Exception:
+                pass
+    return _token
+
+
 async def call(url: str, payload: dict = None, hdr: dict = None) -> dict:
     global _token
-    h = dict(hdr) if hdr is not None else dict(H)
-    if hdr is None and _token:
-        h["Authorization"] = "Bearer " + _token
+    # Agar custom header di hai (player calls) to token mat jodo, warna hamesha ensure karo
+    if hdr is not None:
+        h = dict(hdr)
+    else:
+        await _ensure_token()
+        h = dict(H)
+        if _token:
+            h["Authorization"] = "Bearer " + _token
 
     async with httpx.AsyncClient(follow_redirects=True, timeout=25) as client:
         try:
@@ -52,7 +77,7 @@ async def call(url: str, payload: dict = None, hdr: dict = None) -> dict:
                 pass
 
         if r.status_code != 200:
-            return {"_http": r.status_code}
+            return {"_http": r.status_code, "_body": r.text[:300]}
         try:
             return r.json()
         except Exception:
@@ -95,7 +120,7 @@ async def search(q: str = Query(..., min_length=1), page: int = 1):
         "slug": s.get("detailPath"),
         "subject_id": s.get("subjectId"),
     } for s in items]
-    return {"query": q, "total": len(out), "items": out, "_debug": d.get("_http") or d.get("_err")}
+    return {"query": q, "total": len(out), "items": out, "_debug": d.get("_http") or d.get("_err"), "_body": d.get("_body")}
 
 
 @app.get("/detail/{slug}")
@@ -106,6 +131,7 @@ async def detail(slug: str):
 
 @app.get("/api/stream/{subject_id}")
 async def stream(subject_id: str, detail_path: str, se: int = 1, ep: int = 1):
+    await _ensure_token()
     dom_data = await call(f"{API}/media-player/get-domain")
     dom = (dom_data.get("data") or "https://netfilm.world").rstrip("/")
     ref = f"{dom}/spa/videoPlayPage/movies/{detail_path}?id={subject_id}&type=/movie/detail&detailSe={se}&detailEp={ep}&lang=en"
@@ -129,6 +155,7 @@ async def stream(subject_id: str, detail_path: str, se: int = 1, ep: int = 1):
 
 @app.get("/api/stream/{subject_id}/captions")
 async def captions(subject_id: str, detail_path: str, se: int = 1, ep: int = 1):
+    await _ensure_token()
     dom_data = await call(f"{API}/media-player/get-domain")
     dom = (dom_data.get("data") or "https://netfilm.world").rstrip("/")
     ref = f"{dom}/spa/videoPlayPage/movies/{detail_path}?id={subject_id}&type=/movie/detail&detailSe={se}&detailEp={ep}&lang=en"
