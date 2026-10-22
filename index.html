@@ -143,10 +143,13 @@ video::cue{font-size:1.1em;background:rgba(0,0,0,.65);color:#fff}
 .hero .pri,.hero .glass{padding:8px 16px;font-size:13px;border-radius:12px;box-shadow:none}
 .seg{top:10px}.seg i{height:3px}
 .frail{display:flex;gap:12px;overflow-x:auto;margin:0 -16px;padding:2px 16px 8px;scroll-snap-type:x proximity}
-.ftile{position:relative;flex:0 0 auto;width:clamp(150px,44vw,240px);aspect-ratio:512/276;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--panel2);padding:0;scroll-snap-align:start;color:#fff}
+.ftile{position:relative;flex:0 0 auto;width:clamp(118px,33vw,190px);aspect-ratio:512/276;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--panel2);padding:0;scroll-snap-align:start;color:#fff}
 .ftile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .ftile span{position:absolute;left:0;right:0;bottom:0;padding:22px 10px 8px;font-weight:800;font-size:14px;text-align:left;background:linear-gradient(transparent,rgba(0,0,0,.78))}
 .ftile:active{transform:scale(.96)}
+.ftile.fall{background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;border:0}
+.ftile.fall span{position:static;background:none;padding:0;text-align:center;font-size:15px}
+.cwrap{display:flex;flex-wrap:wrap;gap:8px}
 h2.sec{font-size:17px;margin:20px 0 10px}
 .sec-row{margin:20px 0 10px}.sec-row h2{font-size:17px}
 .rail{grid-auto-columns:clamp(132px,40vw,200px);gap:12px;padding-bottom:4px}
@@ -340,9 +343,28 @@ function tabBar(){if(!TABS.length)return null;
 const moreOf=s=>{const m=s.more||{};return{id:String(m.rankingId||m.rankId||m.id||m.opId||""),url:m.url||m.jumpUrl||m.path||m.link||"",title:s.section}};
 const hasMore=s=>{const m=s.more||{};return!!(m.rankingId||m.rankId||m.id||m.opId||m.url||m.jumpUrl||m.path||m.link)||s.items.length>=9};
 const SECT={};
+function browsePage(){
+  const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All"};
+  const pairs=a=>a.map(v=>[v,v]);
+  const groups=[
+    ["Type","tab",[["Movies","2"],["Dramas & series","5"]]],
+    ["Language","classify",["All","Hindi dub","Punjabi dub","Bengali dub","Tamil dub","Telugu dub","Malayalam dub","Kannada dub","Marathi dub","Urdu dub","English dub"].map(v=>[v.replace(/ dub$/,""),v])],
+    ["Genre","genre",pairs(["All","Action","Adventure","Animation","Comedy","Crime","Documentary","Drama","Family","Fantasy","Horror","Mystery","Romance","Sci-Fi","Thriller","War"])],
+    ["Country","country",pairs(["All","India","United States","South Korea","Japan","China","Thailand","Turkey","United Kingdom","Pakistan","Philippines","Indonesia"])],
+    ["Year","year",pairs(["All","2026","2025","2024","2023","2022","2021","2020","2019","2018"])]];
+  const box=h("div",{});
+  const paint=()=>box.replaceChildren(...groups.flatMap(([lbl,key,opts])=>[h("div",{class:"lbl"},lbl.toUpperCase()),
+    h("div",{class:"cwrap"},opts.map(([l,v])=>h("button",{class:"cat"+(st[key]===v?" on":""),onclick:()=>{st[key]=v;paint()}},l)))]));
+  paint();
+  const show=h("button",{class:"pri",style:"width:100%;margin-top:22px",onclick:()=>{
+    const tl=st.tab==="5"?"Dramas & series":"Movies";
+    const title=[tl,st.classify!=="All"?st.classify.replace(/ dub$/,""):"",st.genre!=="All"?st.genre:"",st.country!=="All"?st.country:"",st.year!=="All"?st.year:""].filter(Boolean).join(" · ");
+    const query="type=/home/movieFilter&tabId="+st.tab+"&filterType="+JSON.stringify({classify:st.classify,country:st.country,genre:st.genre,sort:"ForYou",year:st.year});
+    go("#/all/"+encodeURIComponent(JSON.stringify({title,query})))}},"Show results");
+  mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),h("h2",{class:"sec"},"Browse categories"),box,show)}
 function filterBlock(s){const tl=s.tabs.filter(t=>t.query);
-  return[h("div",{class:"sec-row"},h("h2",{},s.section)),
-    h("div",{class:"frail"},tl.map(t=>h("button",{class:"ftile",onclick:()=>go("#/all/"+encodeURIComponent(JSON.stringify({title:t.name,query:t.query})))},t.image?img(t.image):null,h("span",{},t.name))))]}
+  return[h("div",{class:"sec-row"},h("h2",{},s.section),h("button",{class:"all",onclick:()=>go("#/browse")},"Browse all ›")),
+    h("div",{class:"frail"},tl.map(t=>h("button",{class:"ftile",onclick:()=>go("#/all/"+encodeURIComponent(JSON.stringify({title:t.name,query:t.query})))},t.image?img(t.image):null,h("span",{},t.name))).concat(h("button",{class:"ftile fall",onclick:()=>go("#/browse")},h("span",{},"More ›"))))]}
 function secBlock(s){SEC[s.section]=s.items;SECT[s.section]=s.tabs||[];
   const head=h("div",{class:"sec-row"},h("h2",{},s.section),hasMore(s)?h("button",{class:"all",onclick:()=>go("#/all/"+encodeURIComponent(JSON.stringify(moreOf(s))))},"All ›"):null),
     box=h("div",{},railBox(s.items.slice(0,20))),out=[head];
@@ -581,7 +603,7 @@ async function watch(id,slug,se,ep){
 
 /* ---------- router ---------- */
 function route(){kill();$app.classList.remove("w");const p=location.hash.replace(/^#\/?/,"").split("/").filter(Boolean).map(decodeURIComponent);drawNav();scrollTo({top:0,left:0,behavior:"instant"});
-  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="all")return allPage(p[1]);home()}
+  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage();home()}
 addEventListener("hashchange",route);route();
 </script>
 </body>
