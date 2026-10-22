@@ -131,29 +131,154 @@ async def ui():
 
 def _item(s):
     s = s or {}
-    return {"name": s.get("title"), "poster_url": (s.get("cover") or {}).get("url"),
-            "slug": s.get("detailPath"), "subject_id": s.get("subjectId"), "rating": s.get("imdbRatingValue")}
+    t = s.get("title") or ""
+    cn = s.get("corner")
+    badge = cn if isinstance(cn, str) and cn else ("Hindi" if "[hindi]" in t.lower() else None)  # card ke upar "Hindi" tag
+    return {"name": t or None, "poster_url": (s.get("cover") or {}).get("url"),
+            "slug": s.get("detailPath"), "subject_id": s.get("subjectId"), "rating": s.get("imdbRatingValue"),
+            "badge": badge}
 
 
-@app.get("/home")
-async def home():
-    d = await call(f"{API}/home?host={HOST}")
+# ===== MovieBox ka ASLI home / tabs / "All" (search se nahi: MovieBox khud roz trending update karta hai) =====
+_TAB_KEYS = ("tabList", "tabs", "navList", "homeTabs", "topTabs", "navigation", "categoryList", "channelList")
+_SUB_KEYS = ("tabs", "tabList", "subTabs", "categoryList", "categories", "filters", "genres")
+_ID_KEYS = ("rankingId", "rankId", "opId", "id", "url", "jumpUrl", "path", "link")
+
+
+def _nm(d):
+    return d.get("name") or d.get("title") or d.get("tabName") or d.get("categoryName") or d.get("label") or d.get("lanName")
+
+
+def _tid(d):
+    for k in ("tabId", "id", "categoryId", "rankingId", "opId", "path", "url"):
+        if d.get(k) not in (None, ""):
+            return str(d[k])
+    return None
+
+
+def _banner_items(op):
+    items = []
+    for b in (op.get("banner") or {}).get("items") or []:
+        sub = b.get("subject") or {}
+        items.append({
+            "name": b.get("title") or sub.get("title"),
+            "poster_url": (b.get("image") or {}).get("url") or (sub.get("cover") or {}).get("url"),
+            "slug": b.get("detailPath") or sub.get("detailPath"),
+            "subject_id": b.get("subjectId") or sub.get("subjectId"),
+        })
+    return [i for i in items if i["slug"]]
+
+
+def _subtabs(op):
+    """Section ke andar wale tabs (Asian Drama / Western TV / Turkish Drama / New ...) jo MovieBox ne diye."""
+    for k in _SUB_KEYS:
+        v = op.get(k)
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            tabs = []
+            for t in v:
+                n = _nm(t)
+                if not n:
+                    continue
+                subs = t.get("subjects")
+                tabs.append({"name": n, "id": _tid(t), "items": [_item(s) for s in subs] if isinstance(subs, list) else None})
+            if tabs:
+                return tabs
+    return None
+
+
+def _sections(d):
     out = []
     for op in (d.get("data") or {}).get("operatingList") or []:
         if op.get("type") == "BANNER":
-            items = []
-            for b in (op.get("banner") or {}).get("items") or []:
-                sub = b.get("subject") or {}
-                items.append({
-                    "name": b.get("title") or sub.get("title"),
-                    "poster_url": (b.get("image") or {}).get("url") or (sub.get("cover") or {}).get("url"),
-                    "slug": b.get("detailPath") or sub.get("detailPath"),
-                    "subject_id": b.get("subjectId") or sub.get("subjectId"),
-                })
-            out.append({"section": "Banner", "items": [i for i in items if i["slug"]]})
-        else:
-            out.append({"section": op.get("title") or op.get("type"), "items": [_item(s) for s in op.get("subjects") or []]})
-    return {"sections": out, "_debug": d.get("_http") or d.get("_err")}
+            out.append({"section": "Banner", "items": _banner_items(op)})
+            continue
+        more = {k: op[k] for k in _ID_KEYS if op.get(k) not in (None, "")}
+        out.append({"section": op.get("title") or op.get("type"),
+                    "items": [i for i in (_item(s) for s in op.get("subjects") or []) if i["slug"]],
+                    "more": more or None, "tabs": _subtabs(op)})
+    return out
+
+
+def _toptabs(d):
+    """Upar wale tabs (Trending / Movie / Anime / ...) jo MovieBox ne home response me diye."""
+    data = d.get("data") or {}
+    for k in _TAB_KEYS:
+        v = data.get(k)
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            tabs = [{"name": _nm(t), "id": _tid(t)} for t in v if _nm(t)]
+            if tabs:
+                return tabs
+    return []
+
+
+def _extract(d):
+    x = d.get("data") if isinstance(d, dict) else None
+    if isinstance(x, list):
+        lst = x
+    elif isinstance(x, dict):
+        lst = next((x[k] for k in ("subjectList", "subjects", "items", "list", "contents") if isinstance(x.get(k), list)), [])
+    else:
+        lst = []
+    its = (_item(s.get("subject") if isinstance(s.get("subject"), dict) else s) for s in lst if isinstance(s, dict))
+    return [i for i in its if i["slug"]]
+
+
+def _home_url(tab="", page=0):
+    u = f"{API}/home?host={HOST}"
+    if tab:
+        u += "&tabId=" + quote(tab, safe="")
+    if page:
+        u += f"&page={page}"
+    return u
+
+
+@app.get("/home")
+async def home(tab: str = "", page: int = 0):
+    d = await call(_home_url(tab, page))
+    return {"sections": _sections(d), "tabs": _toptabs(d), "_debug": d.get("_http") or d.get("_err")}
+
+
+@app.get("/more")
+async def more(id: str = "", url: str = "", title: str = "", page: int = 1, per: int = 24):
+    """'All >' / sub-tab ka poora list. MovieBox ke apne endpoints ek-ek karke try hote hain."""
+    cands = []
+    if url.startswith("/"):
+        cands.append(f"{API}{url}{'&' if '?' in url else '?'}page={page}&perPage={per}")
+    if id:
+        cands.append(f"{API}/ranking-list/content?id={quote(id, safe='')}&page={page}&perPage={per}")
+    if re.search(r"trending", title, re.I):
+        cands.append(f"{API}/subject/trending?page={max(page - 1, 0)}&perPage={per}")
+    tried = []
+    for u in cands:
+        d = await call(u)
+        its = _extract(d)
+        tried.append({"url": u, "n": len(its), "err": d.get("_http") or d.get("_err")})
+        if its:
+            return {"items": its, "page": page, "via": u, "tried": tried}
+    return {"items": [], "page": page, "tried": tried}
+
+
+@app.get("/shape")
+async def shape(tab: str = ""):
+    """Browser me kholo: /shape -> MovieBox ke home response ka dhancha (tabs, section ids). Debug ke liye."""
+    d = await call(_home_url(tab))
+    data = d.get("data") or {}
+    return {"status": d.get("_http") or d.get("_err") or "ok",
+            "data_keys": {k: type(v).__name__ + (f"[{len(v)}]" if isinstance(v, (list, dict)) else "") for k, v in data.items()},
+            "top_tabs_found": _toptabs(d),
+            "ops": [{"type": op.get("type"), "title": op.get("title"), "keys": sorted(op.keys()), "n": len(op.get("subjects") or []),
+                     "ids": {k: op[k] for k in _ID_KEYS if k in op}, "sub_tabs": [t["name"] for t in (_subtabs(op) or [])]}
+                    for op in data.get("operatingList") or []]}
+
+
+@app.get("/raw")
+async def raw(p: str):
+    """Debug: MovieBox API ka koi bhi path seedha dekho. /raw?p=%2Fhome%3Fhost%3Dmoviebox.ph"""
+    if not p.startswith("/"):
+        return JSONResponse({"error": "p '/' se shuru hona chahiye"}, status_code=400)
+    d = await call(API + p)
+    s = json.dumps(d, ensure_ascii=False)
+    return Response(s[:60000], media_type="application/json")
 
 
 @app.get("/search")

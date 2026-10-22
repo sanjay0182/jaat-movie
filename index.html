@@ -63,6 +63,20 @@ main{max-width:1180px;margin:0 auto;padding:6px 16px 110px;min-height:70vh}
 .row2{display:flex;gap:10px;margin-top:12px}
 .glass{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.2);color:#fff;border-radius:14px;padding:12px 20px;font-weight:600}
 h2.sec{font-size:19px;font-weight:800;margin:26px 0 12px;letter-spacing:-.2px}
+.sec-row{display:flex;align-items:center;justify-content:space-between;margin:26px 0 12px}
+.sec-row h2{margin:0;font-size:19px;font-weight:800;letter-spacing:-.2px}
+.sec-row .all{color:var(--accent);font-size:13px;font-weight:700;background:none;border:0;padding:4px 0;white-space:nowrap;display:flex;align-items:center;gap:2px}
+.cats{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px;margin:0 -16px;padding-left:16px;padding-right:16px;scrollbar-width:none}
+.cats::-webkit-scrollbar{display:none}
+.cat{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 18px;font-size:13px;font-weight:700;white-space:nowrap;flex:0 0 auto;transition:background .2s,border-color .2s,color .2s}
+.cat.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.cat:active{transform:scale(.95)}
+.toptabs{margin-top:2px;gap:4px}
+.toptabs .cat{background:none;border:0;padding:6px 12px;font-size:15px;color:var(--dim);border-radius:8px}
+.toptabs .cat.on{background:none;color:var(--text);font-size:19px;font-weight:800;padding-top:3px}
+.cats.sub{margin-bottom:6px}
+.cats.sub .cat{padding:6px 14px;font-size:12px}
+.bd{position:absolute;top:6px;left:6px;z-index:1;background:rgba(0,0,0,.62);color:#fff;font-size:10px;font-weight:700;border-radius:6px;padding:2px 7px}
 .rail{display:grid;grid-auto-flow:column;grid-auto-columns:138px;gap:12px;overflow-x:auto;padding-bottom:8px;margin:0 -16px;padding-left:16px;padding-right:16px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(124px,1fr));gap:12px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden;padding:0;text-align:left;width:100%;position:relative;display:block;color:inherit}
@@ -128,6 +142,7 @@ video::cue{font-size:1.1em;background:rgba(0,0,0,.65);color:#fff}
 .hero .pri,.hero .glass{padding:8px 16px;font-size:13px;border-radius:12px;box-shadow:none}
 .seg{top:10px}.seg i{height:3px}
 h2.sec{font-size:17px;margin:20px 0 10px}
+.sec-row{margin:20px 0 10px}.sec-row h2{font-size:17px}
 .rail{grid-auto-columns:clamp(100px,29vw,160px);gap:10px;padding-bottom:4px}
 .grid{grid-template-columns:repeat(auto-fill,minmax(clamp(96px,28vw,150px),1fr));gap:10px}
 .card{border-radius:12px}
@@ -269,7 +284,7 @@ html.tv .ep{font-size:clamp(16px,1.2vw,22px)}
 const BASE="",LITE=document.documentElement.classList.contains("lite");
 const $app=document.getElementById("app"),$nav=document.getElementById("nav");
 const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
-let favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET={};
+let favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET={},HC={},TAB="",TABS=[],SEC={};
 function h(t,a,...k){const el=document.createElement(t);for(const[n,v]of Object.entries(a||{})){if(n==="class")el.className=v;else if(n.startsWith("on"))el[n]=v;else if(v===true)el.setAttribute(n,"");else if(v!==false&&v!=null)el.setAttribute(n,v)}for(const c of k.flat())if(c!=null)el.append(c.nodeType?c:document.createTextNode(c));return el}
 const api=async p=>{const r=await fetch(BASE+p);if(!r.ok)throw new Error(r.status);return r.json()};
 const go=x=>{location.hash=x};
@@ -287,7 +302,7 @@ function drawNav(){const cur=location.hash.replace(/^#\/?/,"").split("/")[0];
 /* ---------- cards ---------- */
 const img=(src,cls)=>{const i=h("img",{class:cls||"",src:src||"",referrerpolicy:"no-referrer",loading:"lazy",decoding:"async",alt:"",onerror:e=>e.target.style.display="none"});i.onload=()=>i.classList.add("ld");if(i.complete&&i.naturalWidth)i.classList.add("ld");return i};
 const open=i=>go("#/show/"+i.slug+"/"+i.subject_id);
-const card=i=>h("button",{class:"card",onclick:()=>open(i)},h("div",{class:"pw"},img(i.poster_url),i.rating?h("div",{class:"rt"},"★ "+i.rating):null),h("div",{class:"t"},i.name||""));
+const card=i=>h("button",{class:"card",onclick:()=>open(i)},h("div",{class:"pw"},img(i.poster_url),i.badge?h("div",{class:"bd"},i.badge):null,i.rating?h("div",{class:"rt"},"★ "+i.rating):null),h("div",{class:"t"},i.name||""));
 const railBox=items=>{const r=h("div",{class:"rail"},items.map(card)),w=h("div",{class:"rw at0"},r);
   const mk=d=>h("button",{class:"rb "+(d<0?"l":"r"),"aria-label":d<0?"Previous":"Next",tabindex:"-1",onclick:()=>r.scrollBy({left:d*r.clientWidth*.85,behavior:"smooth"})},d<0?"‹":"›");
   w.append(mk(-1),mk(1));
@@ -295,13 +310,39 @@ const railBox=items=>{const r=h("div",{class:"rail"},items.map(card)),w=h("div",
   r.addEventListener("scroll",upd,{passive:true});setTimeout(upd,80);return w};
 const skRail=()=>[h("h2",{class:"sec"},"\u00a0"),h("div",{class:"rail"},[1,2,3,4].map(()=>h("div",{class:"sk skc"})))];
 
+/* ---------- tabs / sections / All (sab MovieBox API se, kuch hardcode nahi) ---------- */
+function tabBar(){if(!TABS.length)return null;
+  return h("div",{class:"cats toptabs"},TABS.map((t,k)=>h("button",{class:"cat"+((TAB===""&&k===0)||(TAB&&TAB===t.id)?" on":""),onclick:()=>{TAB=k===0?"":(t.id||"");home()}},t.name)))}
+const moreOf=s=>{const m=s.more||{};return{id:String(m.rankingId||m.rankId||m.id||m.opId||""),url:m.url||m.jumpUrl||m.path||m.link||"",title:s.section}};
+const hasMore=s=>{const m=s.more||{};return!!(m.rankingId||m.rankId||m.id||m.opId||m.url||m.jumpUrl||m.path||m.link)||s.items.length>=9};
+function secBlock(s){SEC[s.section]=s.items;
+  const head=h("div",{class:"sec-row"},h("h2",{},s.section),hasMore(s)?h("button",{class:"all",onclick:()=>go("#/all/"+encodeURIComponent(JSON.stringify(moreOf(s))))},"All ›"):null),
+    box=h("div",{},railBox(s.items.slice(0,20))),out=[head];
+  if(s.tabs&&s.tabs.length){const strip=h("div",{class:"cats sub"});
+    const pick=async k=>{[...strip.children].forEach((b,j)=>b.classList.toggle("on",j===k));const t=s.tabs[k];let its=t.items;
+      if(!its){box.replaceChildren(h("div",{class:"state"},"Loading…"));try{its=(await api("/more?id="+encodeURIComponent(t.id||"")+"&title="+encodeURIComponent(t.name))).items}catch(e){its=[]}}
+      box.replaceChildren(its&&its.length?railBox(its.slice(0,20)):h("div",{class:"state"},"Kuch nahi mila."))};
+    s.tabs.forEach((t,k)=>strip.append(h("button",{class:"cat"+(k===0?" on":""),onclick:()=>pick(k)},t.name)));out.push(strip)}
+  out.push(box);return out}
+async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
+  let page=1,busy=false,done=false;
+  const grid=h("div",{class:"grid"}),st=h("div",{class:"state"},"Loading…"),btn=h("button",{class:"btn",style:"margin:16px auto;display:none"},"Aur dikhao");
+  mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),h("h2",{class:"sec"},m.title||"All"),grid,st,btn);
+  const load=async()=>{if(busy||done)return;busy=true;btn.style.display="none";
+    try{const j=await api("/more?id="+encodeURIComponent(m.id||"")+"&url="+encodeURIComponent(m.url||"")+"&title="+encodeURIComponent(m.title||"")+"&page="+page),it=j.items||[];
+      if(it.length){it.forEach(i=>grid.append(card(i)));page++;st.textContent="";btn.style.display="block"}
+      else{done=true;if(!grid.children.length&&SEC[m.title]){SEC[m.title].forEach(i=>grid.append(card(i)));st.textContent=""}else st.textContent=grid.children.length?"Bas itna hi.":"Is section ka poora list nahi mila."}}
+    catch(e){st.textContent="Load nahi hua."}busy=false};
+  btn.onclick=load;load()}
+
 /* ---------- home ---------- */
 async function home(){
   $app.replaceChildren(h("div",{class:"hero sk"}),...skRail(),...skRail());
-  try{if(!HOME)HOME=(await api("/home")).sections||[]}catch(e){$app.replaceChildren(h("div",{class:"state"},"Server se connect nahi hua. Refresh karo."));return}
+  let R;try{R=HC[TAB]||(HC[TAB]=await api("/home"+(TAB?"?tab="+encodeURIComponent(TAB):"")))}catch(e){$app.replaceChildren(h("div",{class:"state"},"Server se connect nahi hua. Refresh karo."));return}
+  if(!TABS.length)TABS=R.tabs||[];const HOME=R.sections||[];
   const ban=(HOME.find(s=>s.section==="Banner")||{items:[]}).items.slice(0,5);
   const rest=HOME.filter(s=>s.section!=="Banner"&&s.items&&s.items.length).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));
-  const frag=[];
+  const frag=[tabBar()].filter(Boolean);
   if(ban.length){const box=h("div",{class:"hero"}),N=ban.length,D=LITE?10000:6000;let i=0,hT=0,sx=0,sy=0;
     const to=k=>{clearTimeout(hT);i=(k+N)%N;draw()};
     const tick=()=>{if(!box.isConnected)return;if(document.hidden){hT=setTimeout(tick,D);return}to(i+1)};
@@ -318,7 +359,7 @@ async function home(){
     box.addEventListener("touchstart",e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
     box.addEventListener("touchend",e=>{if(N<2)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.5)to(i+(dx<0?1:-1))},{passive:true});
     draw();frag.push(box)}
-  rest.forEach(s=>frag.push(h("h2",{class:"sec"},s.section),railBox(s.items.slice(0,20))));
+  rest.forEach(s=>frag.push(...secBlock(s)));
   if(!frag.length)frag.push(h("div",{class:"state"},"Kuch nahi mila."));
   $app.replaceChildren(...frag)}
 
@@ -453,7 +494,7 @@ async function watch(id,slug,se,ep){
 
 /* ---------- router ---------- */
 function route(){kill();$app.classList.remove("w");const p=location.hash.replace(/^#\/?/,"").split("/").filter(Boolean).map(decodeURIComponent);drawNav();scrollTo({top:0,left:0,behavior:"instant"});
-  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();home()}
+  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="all")return allPage(p[1]);home()}
 addEventListener("hashchange",route);route();
 </script>
 </body>
