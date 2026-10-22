@@ -28,6 +28,8 @@ H = {
     "Accept": "application/json", "Content-Type": "application/json",
     "X-Request-Lang": "en", "X-Client-Info": XCI, "Accept-Language": "en-IN,en;q=0.9",
 }
+HOST = os.getenv("MB_HOST", "moviebox.ph")          # /home?host=... (mirror site)
+H.update(json.loads(os.getenv("MB_HEADERS", "{}")))  # jo probe me kaam kare wo headers yahan daalo
 _tok = {"v": "", "t": 0}
 _ref = {"v": "https://netfilm.world/"}
 
@@ -48,7 +50,7 @@ async def ensure_token(force=False):
         return _tok["v"]
     async with httpx.AsyncClient(follow_redirects=True, timeout=25, **CK) as c:
         try:
-            _grab(await c.get(f"{API}/home?host=moviebox.ph", headers=H))
+            _grab(await c.get(f"{API}/home?host={HOST}", headers=H))
         except Exception:
             pass
     return _tok["v"]
@@ -89,7 +91,7 @@ def _item(s):
 
 @app.get("/home")
 async def home():
-    d = await call(f"{API}/home?host=moviebox.ph")
+    d = await call(f"{API}/home?host={HOST}")
     out = []
     for op in (d.get("data") or {}).get("operatingList") or []:
         if op.get("type") == "BANNER":
@@ -147,7 +149,9 @@ async def stream(subject_id: str, detail_path: str, se: int = 0, ep: int = 0):
             res = int(s.get("resolutions") or 0)
             src.append({"kind": "hls" if ".m3u8" in s["url"] else "mp4", "label": f"{res}p", "res": res, "url": _px(s["url"])})
     src.sort(key=lambda x: -x["res"])
-    return {"has_resource": bool(src), "sources": src, "note": None if src else "Is episode ka stream nahi mila.", "_domain": dom}
+    st = (pd.get("streams") or pd.get("dash") or [None])[0] or {}
+    cap = {"id": st.get("id"), "fmt": st.get("format") or "MP4"}
+    return {"has_resource": bool(src), "sources": src, "note": None if src else "Is episode ka stream nahi mila.", "cap": cap, "_domain": dom}
 
 
 @app.get("/p")
@@ -184,3 +188,62 @@ async def proxy(request: Request, u: str):
         finally:
             await r.aclose(); await c.aclose()
     return StreamingResponse(gen(), status_code=r.status_code, headers=keep)
+
+
+@app.get("/api/captions/{subject_id}")
+async def captions(subject_id: str, detail_path: str, id: str = "", fmt: str = "MP4"):
+    if not id:
+        return {"captions": []}
+    d = await call(f"{API}/subject/caption?format={fmt}&id={id}&subjectId={subject_id}&detailPath={detail_path}")
+    cd = d.get("data")
+    caps = (cd.get("captions") if isinstance(cd, dict) else cd) or []
+    return {"captions": [{"lang": c.get("lanName") or c.get("lan") or "Subtitle", "url": "/sub?u=" + quote(c["url"], safe="")}
+                         for c in caps if isinstance(c, dict) and c.get("url")]}
+
+
+@app.get("/sub")
+async def sub(u: str):
+    """Subtitle fetch + SRT -> WebVTT (browser <track> sirf VTT samajhta hai)."""
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30, **CK) as c:
+        try:
+            r = await c.get(u, headers={"User-Agent": UA, "Referer": _ref["v"]})
+        except Exception as e:
+            return Response(str(e), status_code=502)
+    t = r.content.decode("utf-8-sig", "ignore").replace("\r", "")
+    if not t.lstrip().startswith("WEBVTT"):
+        t = "WEBVTT\n\n" + re.sub(r"(\d\d:\d\d:\d\d),(\d{3})", r"\1.\2", t)
+    return Response(t, media_type="text/vtt; charset=utf-8")
+
+
+IN_IP = "49.205.120.45"  # sirf test ke liye ek Indian ISP range ka IP
+PROBES = {
+    "base": ({}, "moviebox.ph"),
+    "lang_hi": ({"Accept-Language": "hi-IN,hi;q=0.9", "X-Request-Lang": "hi"}, "moviebox.ph"),
+    "ip_headers": ({"X-Forwarded-For": IN_IP, "X-Real-IP": IN_IP, "CF-Connecting-IP": IN_IP, "CF-IPCountry": "IN"}, "moviebox.ph"),
+    "host_h5": ({}, "h5.aoneroom.com"),
+    "all_signals": ({"Accept-Language": "hi-IN,hi;q=0.9", "X-Forwarded-For": IN_IP, "X-Real-IP": IN_IP, "CF-IPCountry": "IN"}, "h5.aoneroom.com"),
+}
+
+
+@app.get("/probe")
+async def probe():
+    """Browser me kholo: /probe  -> dekho kis variant me Indian/Hindi titles aate hain."""
+    out = {}
+    async with httpx.AsyncClient(follow_redirects=True, timeout=25, **CK) as c:
+        try:
+            out["server_ip_info"] = (await c.get("https://ipinfo.io/json")).json()
+        except Exception as e:
+            out["server_ip_info"] = str(e)
+        for k, (extra, host) in PROBES.items():
+            try:
+                r = await c.get(f"{API}/home?host={host}", headers={**H, **extra})
+                try:
+                    info = {a: b for a, b in json.loads(r.headers.get("x-user", "{}")).items() if a != "token"}
+                except Exception:
+                    info = {}
+                ops = (r.json().get("data") or {}).get("operatingList") or []
+                out[k] = {"status": r.status_code, "x_user": info,
+                          "sample": [s.get("title") for op in ops for s in (op.get("subjects") or [])][:12]}
+            except Exception as e:
+                out[k] = {"err": str(e)}
+    return out

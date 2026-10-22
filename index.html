@@ -90,12 +90,18 @@ video{width:100%;height:100%;display:block}
 .sobar button{background:none;border:0;color:var(--accent);font-weight:700}
 .sobody{flex:1;overflow-y:auto;padding:4px 16px 40px}
 .state{padding:60px 16px;text-align:center;color:var(--dim)}
+.spill{white-space:nowrap;overflow:hidden;font-size:14px}.spill svg{flex:0 0 auto}.spill span{overflow:hidden;text-overflow:ellipsis}
+.player:fullscreen{border-radius:0;aspect-ratio:auto;width:100%;height:100%}.player:-webkit-full-screen{border-radius:0;aspect-ratio:auto;width:100%;height:100%}
+video::cue{font-size:1.1em;background:rgba(0,0,0,.65);color:#fff}
+.sels{display:grid;grid-template-columns:1fr 1fr;gap:10px}.fld{display:grid;gap:4px;font-size:11px;color:var(--dim);font-weight:700;min-width:0}.fld select{width:100%}
+.spill{height:40px;padding:0 14px;font-size:13px;line-height:1;gap:8px;flex:1 1 0;min-width:0;max-width:none}.spill span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ib{width:40px;height:40px;font-size:16px}.logo{font-size:19px}header{padding-top:calc(8px + env(safe-area-inset-top));padding-bottom:8px;gap:8px}
 </style>
 </head>
 <body>
 <header>
   <div class="logo" id="logo"><b>Movie</b>Box</div>
-  <button class="spill" id="sbtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Search movies, series…</button>
+  <button class="spill" id="sbtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span>Search movies…</span></button>
   <button class="ib" id="theme" aria-label="Theme">◐</button>
 </header>
 <main id="app"></main>
@@ -110,6 +116,7 @@ let favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET
 function h(t,a,...k){const el=document.createElement(t);for(const[n,v]of Object.entries(a||{})){if(n==="class")el.className=v;else if(n.startsWith("on"))el[n]=v;else if(v===true)el.setAttribute(n,"");else if(v!==false&&v!=null)el.setAttribute(n,v)}for(const c of k.flat())if(c!=null)el.append(c.nodeType?c:document.createTextNode(c));return el}
 const api=async p=>{const r=await fetch(BASE+p);if(!r.ok)throw new Error(r.status);return r.json()};
 const go=x=>{location.hash=x};
+const mount=(...e)=>$app.replaceChildren(...e.flat().filter(Boolean));
 function kill(){timers.forEach(clearInterval);timers=[];if(hls){hls.destroy();hls=null}const v=document.querySelector("video");if(v){try{v.pause();v.removeAttribute("src");v.load()}catch(e){}}}
 function setTheme(t){document.documentElement.dataset.theme=t;store.set("theme",t)}
 setTheme(store.get("theme")||"dark");
@@ -167,7 +174,7 @@ function toggleFav(i){const k=favs.findIndex(f=>f.slug===i.slug);if(k>=0)favs.sp
 async function getDet(slug){if(DET[slug])return DET[slug];const d=await api("/detail/"+slug),s=(d.data&&d.data.subject)||{},r=(d.data&&d.data.resource)||{};
   let seasons=(r.seasons||[]).filter(x=>x.se>0).map(x=>({se:+x.se,n:+(x.maxEp||x.allEp||0)||12}));
   const series=s.subjectType===2||seasons.length>0;if(series&&!seasons.length)seasons=[{se:1,n:12}];
-  return DET[slug]={title:s.title||slug,poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,seasons}}
+  return DET[slug]={title:s.title||slug,poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,seasons,dubs:((d.data&&d.data.dubs)||[]).filter(x=>x.subjectId&&x.detailPath).map(x=>({id:x.subjectId,slug:x.detailPath,lang:x.lanName||x.lanCode||"Dub"}))}}
 function epGrid(seasons,curSe,curEp,pick){let sh=curSe||seasons[0].se;const tabs=h("div",{class:"chips"}),grid=h("div",{class:"eps"});
   const paint=()=>{tabs.replaceChildren(...(seasons.length>1?seasons.map(s=>h("button",{class:"chip","aria-pressed":String(s.se===sh),onclick:()=>{sh=s.se;paint()}},"Season "+s.se)):[]));
     const n=(seasons.find(s=>s.se===sh)||{n:0}).n;grid.replaceChildren(...Array.from({length:n},(_,k)=>h("button",{class:"ep"+(sh===curSe&&k+1===curEp?" cur":""),onclick:()=>pick(sh,k+1)},String(k+1))))};
@@ -178,7 +185,7 @@ async function show(slug,id){
   const play=(se,ep)=>go("#/watch/"+id+"/"+slug+"/"+se+"/"+ep),first=d.series?d.seasons[0]:{se:0};
   const inList=()=>favs.some(f=>f.slug===slug),item={slug,subject_id:id,name:d.title,poster_url:d.poster,rating:d.rating};
   const fb=h("button",{class:"glass",onclick:()=>{toggleFav(item);fb.textContent=inList()?"✓ In My List":"+ My List"}},inList()?"✓ In My List":"+ My List");
-  $app.replaceChildren(h("button",{class:"back",onclick:()=>history.back()},"← Back"),
+  mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),
     h("div",{class:"top"},h("div",{class:"bg",style:"background-image:url('"+d.poster+"')"}),h("div",{class:"in2"},
       h("div",{class:"pic"},img(d.poster)),
       h("div",{class:"dtx"},h("h1",{},d.title),h("div",{style:"color:#d5d8e2;font-size:13px"},[d.rating?"★ "+d.rating:"",d.year,d.series?d.seasons.length+" season"+(d.seasons.length>1?"s":""):"Movie"].filter(Boolean).join(" · ")),
@@ -189,20 +196,28 @@ async function show(slug,id){
 
 /* ---------- watch ---------- */
 async function watch(id,slug,se,ep){
-  se=+se;ep=+ep;let d;try{d=await getDet(slug)}catch(e){d={title:slug,series:se>0,seasons:[]}}
+  se=+se;ep=+ep;let d;try{d=await getDet(slug)}catch(e){d={title:slug,series:se>0,seasons:[],dubs:[]}}
   const video=h("video",{controls:true,playsinline:true,autoplay:true,preload:"auto"}),buf=h("div",{class:"buf"},"Buffering…"),
     msg=h("div",{class:"msg"},"Stream dhoondh raha hai… 10–20 second lag sakte hain."),box=h("div",{class:"player"},video,buf,msg);
   const title=d.title+(d.series?" · S"+se+" E"+ep:"");
   let next=null;if(d.series){const s=d.seasons.find(x=>x.se===se);if(s&&ep<s.n)next=[se,ep+1];else{const ns=d.seasons.find(x=>x.se>se);if(ns)next=[ns.se,1]}}
   const nUrl=n=>"#/watch/"+id+"/"+slug+"/"+n[0]+"/"+n[1];
   const nextBar=d.series?h("div",{class:"nextbar"},ep>1?h("button",{class:"btn",onclick:()=>go(nUrl([se,ep-1]))},"‹ Prev"):null,next?h("button",{class:"pri",onclick:()=>go(nUrl(next))},"Next episode · S"+next[0]+" E"+next[1]+" ›"):null):null;
-  const srcBox=h("div",{class:"chips"}),sels=h("div",{style:"display:flex;gap:8px;flex-wrap:wrap;margin-left:auto"});
+  const fld=(l,el)=>h("label",{class:"fld"},l,el);
+  let caps=[];
+  const srcSel=h("select",{onchange:()=>play(+srcSel.value)}),
+    subSel=h("select",{onchange:()=>{const v=+subSel.value;[...video.textTracks].forEach((t,k)=>t.mode=k===v?"showing":"disabled");store.set("sub",v<0?"":caps[v].lang)}},h("option",{value:-1},"Off"));
   const seek=x=>{if(video.duration)video.currentTime=Math.max(0,Math.min(video.duration,video.currentTime+x))};
   const sb=(l,x)=>h("button",{class:"sb",onclick:()=>seek(x)},l);
   const speed=h("select",{onchange:e=>video.playbackRate=+e.target.value},[0.75,1,1.25,1.5,2].map(v=>h("option",{value:v,selected:v===1},v+"×")));
   const auto=h("input",{type:"checkbox",checked:store.get("auto")!=="0",onchange:e=>store.set("auto",e.target.checked?"1":"0")});
-  const cbar=h("div",{class:"cbar"},srcBox,h("div",{class:"crow"},h("div",{class:"seekgrp"},sb("−10s",-10),sb("−0.1",-.1),sb("+0.1",.1),sb("+10s",10)),sels),h("div",{class:"muted",style:"font-size:12px"},"Audio thoda off lage to 0.1 buttons se adjust karo."));
-  $app.replaceChildren(h("button",{class:"back",onclick:()=>go("#/show/"+slug+"/"+id)},"← "+d.title),h("h2",{style:"margin:0 0 12px;font-size:19px"},title),box,nextBar,cbar,
+  const fv=store.get("fit")||"contain";video.style.objectFit=fv;
+  const fit=h("select",{onchange:e=>{video.style.objectFit=e.target.value;store.set("fit",e.target.value)}},[["contain","Fit"],["cover","Fill (crop)"],["fill","Stretch"]].map(([v,l])=>h("option",{value:v,selected:v===fv},l)));
+  const fs=h("button",{class:"btn",onclick:async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else{await box.requestFullscreen();if(screen.orientation&&screen.orientation.lock)screen.orientation.lock("landscape").catch(()=>{})}}catch(e){if(video.webkitEnterFullscreen)video.webkitEnterFullscreen()}}},"⛶ Fullscreen");
+  const dubs=d.dubs.length>1?h("select",{onchange:e=>{const x=d.dubs[+e.target.value];go("#/watch/"+x.id+"/"+x.slug+"/"+se+"/"+ep)}},d.dubs.map((x,k)=>h("option",{value:k,selected:String(x.id)===String(id)},x.lang))):null;
+  const sels=h("div",{class:"sels"},dubs?fld("Language",dubs):null,fld("Quality",srcSel),fld("Subtitles",subSel),fld("Screen",fit),fld("Speed",speed));
+  const cbar=h("div",{class:"cbar"},sels,h("div",{class:"crow"},h("div",{class:"seekgrp"},sb("−10s",-10),sb("−0.1",-.1),sb("+0.1",.1),sb("+10s",10)),fs),h("div",{class:"muted",style:"font-size:12px"},"Audio thoda off lage to 0.1 buttons se adjust karo."));
+  mount(h("button",{class:"back",onclick:()=>go("#/show/"+slug+"/"+id)},"← "+d.title),h("h2",{style:"margin:0 0 12px;font-size:19px"},title),box,nextBar,cbar,
     d.series?h("div",{class:"panel"},h("label",{class:"chk"},auto,"Play next episode automatically")):null,
     d.series&&d.seasons.length?epGrid(d.seasons,se,ep,(s,e)=>go(nUrl([s,e]))):null);
   const mine=()=>document.body.contains(box);
@@ -212,8 +227,8 @@ async function watch(id,slug,se,ep){
   video.onended=()=>{store.set(key,"0");if(!next||!auto.checked)return;let n=5;const lb=h("span",{},"Next episode in "+n+"s"),bar=h("div",{class:"cd"},lb,h("div",{},h("button",{class:"go",onclick:()=>{clearInterval(t);go(nUrl(next))}},"Play now"),h("button",{onclick:()=>{clearInterval(t);bar.remove()}},"Cancel")));
     box.append(bar);const t=setInterval(()=>{n--;lb.textContent="Next episode in "+n+"s";if(n<=0){clearInterval(t);go(nUrl(next))}},1000);timers.push(t)};
   timers.push(setInterval(()=>{if(!video.paused&&video.currentTime>5)store.set(key,String(video.currentTime))},8000));
-  function play(i){cur=i;tried.add(i);if(hls){hls.destroy();hls=null}msg.style.display="flex";msg.textContent="Loading…";sels.replaceChildren(speed);
-    srcBox.replaceChildren(...src.map((s,j)=>h("button",{class:"chip","aria-pressed":String(j===i),onclick:()=>play(j)},s.label)));
+  function play(i){cur=i;tried.add(i);if(hls){hls.destroy();hls=null}msg.style.display="flex";msg.textContent="Loading…";sels.querySelectorAll(".dyn").forEach(x=>x.remove());
+    srcSel.replaceChildren(...src.map((s,j)=>h("option",{value:j,selected:j===i},s.label)));
     const x=src[i],hide=()=>{msg.style.display="none";buf.style.display="none"};
     const bad=t=>{msg.style.display="flex";msg.replaceChildren(h("div",{},t||"Ye stream load nahi hui.",h("div",{style:"margin-top:12px"},h("button",{class:"chip",onclick:()=>{tried.clear();play(cur)}},"↻ Retry"))))};
     const fb=()=>{const n=src.findIndex((_,j)=>!tried.has(j));if(n<0)return false;msg.textContent="Dusra source try ho raha hai…";play(n);return true};
@@ -225,13 +240,19 @@ async function watch(id,slug,se,ep){
       hls=new Hls({maxBufferLength:30,capLevelToPlayerSize:true,startFragPrefetch:true,manifestLoadingMaxRetry:3,fragLoadingMaxRetry:4});
       hls.loadSource(x.url);hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(hide);
-        if(hls.levels.length>1)sels.prepend(h("select",{onchange:e=>hls.currentLevel=+e.target.value},h("option",{value:-1},"Quality: Auto"),hls.levels.map((l,k)=>({l,k})).sort((a,b)=>b.l.height-a.l.height).map(({l,k})=>h("option",{value:k},"Quality: "+l.height+"p"))))});
+        if(hls.levels.length>1)sels.append(h("label",{class:"fld dyn"},"Resolution",h("select",{onchange:e=>hls.currentLevel=+e.target.value},h("option",{value:-1},"Auto"),hls.levels.map((l,k)=>({l,k})).sort((a,b)=>b.l.height-a.l.height).map(({l,k})=>h("option",{value:k},l.height+"p")))))});
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED,()=>{if(hls.audioTracks.length>1)sels.append(h("label",{class:"fld dyn"},"Audio track",h("select",{onchange:e=>hls.audioTrack=+e.target.value},hls.audioTracks.map((t,k)=>h("option",{value:k},t.name||t.lang||"Track "+(k+1))))))});
       hls.on(Hls.Events.FRAG_BUFFERED,()=>{nt=0});
       hls.on(Hls.Events.ERROR,(_e,er)=>{if(!er.fatal)return;
         if(er.type===Hls.ErrorTypes.NETWORK_ERROR&&nt++<3){buf.style.display="block";setTimeout(()=>hls&&hls.startLoad(video.currentTime||-1),1500*nt)}
         else if(er.type===Hls.ErrorTypes.MEDIA_ERROR&&mt++<3)hls.recoverMediaError();
         else if(!fb())bad("Stream load nahi hui. Thodi der baad try karo.")})}
     else{video.src=x.url;video.play().catch(hide)}}
+  api("/api/captions/"+id+"?detail_path="+encodeURIComponent(slug)+"&id="+encodeURIComponent((data.cap&&data.cap.id)||"")+"&fmt="+((data.cap&&data.cap.fmt)||"MP4")).then(j=>{if(!mine())return;caps=j.captions||[];
+    if(!caps.length){subSel.firstChild.textContent="None available";return}
+    caps.forEach(c=>video.append(h("track",{kind:"subtitles",label:c.lang,src:c.url})));
+    caps.forEach((c,k)=>subSel.append(h("option",{value:k},c.lang)));
+    const k=caps.findIndex(c=>c.lang===store.get("sub"));if(k>=0){subSel.value=k;subSel.onchange()}}).catch(()=>{});
   play(0)}
 
 /* ---------- router ---------- */
