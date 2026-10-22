@@ -294,6 +294,23 @@ async def shape(tab: str = ""):
                     for op in data.get("operatingList") or []]}
 
 
+@app.get("/diag")
+async def diag():
+    """Debug: open /diag in the browser for a one-page health check (token, home, detail of the first title)."""
+    out = {"token_ok": bool(await ensure_token(True))}
+    d = await call(_home_url())
+    out["home"] = d.get("_http") or d.get("_err") or "ok"
+    first = next((i for sec in _sections(d) for i in sec["items"] if i.get("slug")), None)
+    out["first_item"] = first
+    if first:
+        dd = await call(f"{API}/detail?detailPath={first['slug']}")
+        data = dd.get("data") or {}
+        out["detail"] = {"status": dd.get("_http") or dd.get("_err") or "ok", "code": dd.get("code"),
+                         "message": dd.get("message") or dd.get("msg"), "has_subject": bool(data.get("subject")),
+                         "body": dd.get("_body"), "keys": list(dd.keys())[:10]}
+    return out
+
+
 @app.get("/peek")
 async def peek(tab: str = ""):
     """Debug: open /peek in the browser to see the raw platformList, the Categories (FILTER) block and one sample section."""
@@ -326,7 +343,15 @@ async def search(q: str = Query(..., min_length=1), page: int = 1):
 
 @app.get("/detail/{slug}")
 async def detail(slug: str):
-    return await call(f"{API}/detail?detailPath={slug}")
+    urls = [f"{API}/detail?detailPath={slug}", f"{API}/detail?detailPath={slug}&host={HOST}"]
+    d = await call(urls[0])
+    if not (d.get("data") or {}).get("subject"):  # retry with a fresh token, then with the host parameter
+        await ensure_token(True)
+        for u in urls:
+            d = await call(u)
+            if (d.get("data") or {}).get("subject"):
+                break
+    return d
 
 
 def _px(u):
