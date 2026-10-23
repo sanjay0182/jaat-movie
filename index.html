@@ -410,7 +410,7 @@ const kindOf=(i,sec)=>{const g=String(i.genre||"");
   return"other"};
 const catBar=()=>h("div",{class:"cats toptabs"},CATS.map(([k,l])=>h("button",{class:"cat"+(CAT===k?" on":""),onclick:()=>{CAT=k;home()}},l)));
 async function pool(){if(POOL.length)return POOL;
-  const R=HC[""]||(HC[""]=await api("/home")),seen=new Set();
+  const R=HC["#all"]||(HC["#all"]=await api("/home?pages=6")),seen=new Set();
   (R.sections||[]).forEach(s=>(s.items||[]).forEach(i=>{if(i.slug&&!seen.has(i.slug)){seen.add(i.slug);POOL.push(i)}}));return POOL}
 const applyFilter=(P,q)=>{let tab="2",ft={};
   try{const u=new URLSearchParams(q);tab=u.get("tabId")||"2";ft=JSON.parse(u.get("filterType")||"{}")}catch(e){}
@@ -426,7 +426,7 @@ const applyFilter=(P,q)=>{let tab="2",ft={};
 /* ---------- home ---------- */
 async function home(){
   $app.replaceChildren(h("div",{class:"hero sk"}),...skRail(),...skRail());
-  let R;try{R=HC[TAB]||(HC[TAB]=await api("/home"+(TAB?"?tab="+encodeURIComponent(TAB):"")))}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to connect to the server. Please refresh the page."));return}
+  let R;try{R=HC[TAB]||(HC[TAB]=await api("/home?pages=6"+(TAB?"&tab="+encodeURIComponent(TAB):"")))}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to connect to the server. Please refresh the page."));return}
   if(!TABS.length)TABS=R.tabs||[];const HOME=R.sections||[];
   const ban=(HOME.find(s=>s.section==="Banner")||{items:[]}).items.slice(0,5);
   const rest=HOME.filter(s=>s.section!=="Banner"&&((s.items&&s.items.length)||(s.kind==="filter"&&s.tabs&&s.tabs.length))).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));

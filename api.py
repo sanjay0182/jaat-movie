@@ -264,9 +264,32 @@ def _home_url(tab="", page=0):
 
 
 @app.get("/home")
-async def home(tab: str = "", page: int = 0):
+async def home(tab: str = "", page: int = 0, pages: int = 1):
     d = await call(_home_url(tab, page))
-    return {"sections": _sections(d), "tabs": _toptabs(d), "platforms": _platforms(d), "_debug": d.get("_http") or d.get("_err")}
+    secs = _sections(d)
+    info = {"pages_ok": 1}
+    if pages > 1 and not page:
+        # MovieBox's home is an endless feed: page 2, 3, ... bring more rows. The very end of the feed is the
+        # 1000000-total junk list, so stop there (or as soon as a page adds nothing new).
+        pages = min(pages, 8)
+        extra = await asyncio.gather(*[call(_home_url(tab, p)) for p in range(1, pages)])
+        seen = {(s["section"], (s["items"][0]["slug"] if s.get("items") else None)) for s in secs}
+        for e in extra:
+            if not isinstance(e, dict) or e.get("_http") or e.get("_err") or _sentinel(e):
+                break
+            new = []
+            for s in _sections(e):
+                key = (s["section"], (s["items"][0]["slug"] if s.get("items") else None))
+                if s["section"] == "Banner" or key in seen:
+                    continue
+                seen.add(key)
+                new.append(s)
+            if not new:
+                break
+            secs += new
+            info["pages_ok"] += 1
+    return {"sections": secs, "tabs": _toptabs(d), "platforms": _platforms(d),
+            "_debug": d.get("_http") or d.get("_err"), "_paging": info}
 
 
 @app.get("/more")
@@ -351,6 +374,8 @@ pre{white-space:pre-wrap;word-break:break-all;background:#15151a;padding:10px;bo
 const $=i=>document.getElementById(i);
 const F=(ch,x)=>JSON.stringify(Object.assign({channelId:ch,page:1,perPage:12,genre:"All",country:"All",year:"All",sort:"ForYou",classify:"All"},x||{}));
 const PRE=[["Home","GET","/home?host=moviebox.ph",""],
+["Home p1","GET","/home?host=moviebox.ph&page=1",""],["Home p2","GET","/home?host=moviebox.ph&page=2",""],
+["Home p3","GET","/home?host=moviebox.ph&page=3",""],["Home p6","GET","/home?host=moviebox.ph&page=6",""],
 ["Movies ch1","POST","/subject/filter",F("1")],["TV ch2","POST","/subject/filter",F("2")],["Anime ch4","POST","/subject/filter",F("4")],
 ["Movies Action 2025","POST","/subject/filter",F("1",{genre:"Action",year:"2025"})],
 ["Movies Hindi (classify)","POST","/subject/filter",F("1",{classify:"Hindi dub"})],
