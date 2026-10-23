@@ -307,7 +307,7 @@ html.tv .modal :focus,html.big .modal :focus-visible{outline:3px solid var(--acc
 const BASE="",LITE=document.documentElement.classList.contains("lite");
 const $app=document.getElementById("app"),$nav=document.getElementById("nav");
 const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
-let ME=null,PROG=[],SEENSET=new Set(),favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET={},HC={},TAB="",TABS=[],SEC={};
+let ME=null,PROG=[],SEENSET=new Set(),favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET={},HC={},TAB="",TABS=[],SEC={},CAT="all";
 function h(t,a,...k){const el=document.createElement(t);for(const[n,v]of Object.entries(a||{})){if(n==="class")el.className=v;else if(n.startsWith("on"))el[n]=v;else if(v===true)el.setAttribute(n,"");else if(v!==false&&v!=null)el.setAttribute(n,v)}for(const c of k.flat())if(c!=null)el.append(c.nodeType?c:document.createTextNode(c));return el}
 const api=async(p,body)=>{const o={headers:{}},t=store.get("jf_token");if(t)o.headers.Authorization="Bearer "+t;
   if(body!==undefined){o.method="POST";o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body)}
@@ -343,8 +343,8 @@ function tabBar(){if(!TABS.length)return null;
 const moreOf=s=>{const m=s.more||{};return{id:String(m.rankingId||m.rankId||m.id||m.opId||""),url:m.url||m.jumpUrl||m.path||m.link||"",title:s.section}};
 const hasMore=s=>{const m=s.more||{};return!!(m.rankingId||m.rankId||m.id||m.opId||m.url||m.jumpUrl||m.path||m.link)||s.items.length>=9};
 const SECT={};
-function browsePage(){
-  const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All"};
+function browsePage(pre){
+  const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All"};if(pre==="tv")st.tab="5";if(pre==="anime")st.genre="Animation";
   const pairs=a=>a.map(v=>[v,v]);
   const groups=[
     ["Type","tab",[["Movies","2"],["Dramas & series","5"]]],
@@ -384,7 +384,10 @@ async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
     try{const j=await api(cur.query?"/filter?query="+encodeURIComponent(cur.query)+"&page="+page:"/more?id="+encodeURIComponent(cur.id)+"&url="+encodeURIComponent(cur.url)+"&title="+encodeURIComponent(cur.title)+"&page="+page),it=j.items||[];
       if(g!==gen){busy=false;return}
       if(it.length){it.forEach(i=>grid.append(card(i)));page++;st.textContent="";btn.style.display="block"}
-      else{done=true;const fb=cur.items||SEC[cur.title];if(!grid.children.length&&fb&&fb.length){fb.forEach(i=>grid.append(card(i)));st.textContent=""}else st.textContent=grid.children.length?"That's everything.":"The full list for this category is not available."}}
+      else{done=true;let fb=cur.items||SEC[cur.title],note="";
+        if(!grid.children.length&&cur.query){try{fb=applyFilter(await pool(),cur.query);note="Matches from MovieBox's home feed. The complete filtered list needs a MovieBox login."}catch(e){}}
+        if(g!==gen){busy=false;return}
+        if(!grid.children.length&&fb&&fb.length){fb.forEach(i=>grid.append(card(i)));st.textContent=note}else st.textContent=grid.children.length?"That's everything.":"The full list for this category is not available."}}
     catch(e){st.textContent="Failed to load."}busy=false};
   const pick=k=>{
     const t=k<0?null:tabs[k];gen++;page=1;busy=false;done=false;grid.replaceChildren();st.textContent="Loading…";
@@ -392,6 +395,33 @@ async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
   if(strip){strip.append(h("button",{class:"cat on",onclick:()=>pick(-1)},"All"));tabs.forEach((t,k)=>strip.append(h("button",{class:"cat",onclick:()=>pick(k)},t.name)));
     [...strip.children].forEach((b,j)=>{const f=b.onclick;b.onclick=()=>{[...strip.children].forEach((x,y)=>x.classList.toggle("on",y===j));f()}})}
   btn.onclick=load;load()}
+
+/* ---------- Movies / TV / Animation tabs (grouped from the home feed) + Services row ---------- */
+const CATS=[["all","All"],["movie","Movies"],["tv","TV Series"],["anime","Animation"],["short","Shorts"]];
+let POOL=[];
+const kindOf=(i,sec)=>{const g=String(i.genre||"");
+  if(/anim(e|ation)/i.test(g))return"anime";
+  if(i.type==7)return"short";if(i.type==2)return"tv";if(i.type==1)return"movie";
+  const s=String(sec||"");
+  if(/short/i.test(s))return"short";
+  if(/anime|animation/i.test(s))return"anime";
+  if(/series|drama|tv\b|show/i.test(s))return"tv";
+  if(/movie|cinema|bollywood|hollywood|south/i.test(s))return"movie";
+  return"other"};
+const catBar=()=>h("div",{class:"cats toptabs"},CATS.map(([k,l])=>h("button",{class:"cat"+(CAT===k?" on":""),onclick:()=>{CAT=k;home()}},l)));
+async function pool(){if(POOL.length)return POOL;
+  const R=HC[""]||(HC[""]=await api("/home")),seen=new Set();
+  (R.sections||[]).forEach(s=>(s.items||[]).forEach(i=>{if(i.slug&&!seen.has(i.slug)){seen.add(i.slug);POOL.push(i)}}));return POOL}
+const applyFilter=(P,q)=>{let tab="2",ft={};
+  try{const u=new URLSearchParams(q);tab=u.get("tabId")||"2";ft=JSON.parse(u.get("filterType")||"{}")}catch(e){}
+  const lc=v=>String(v||"").toLowerCase();
+  return P.filter(i=>{const k=kindOf(i,"");
+    if(tab==="5"?k!=="tv":(k==="tv"||k==="short"))return false;
+    if(ft.genre&&ft.genre!=="All"&&!lc(i.genre).includes(lc(ft.genre)))return false;
+    if(ft.country&&ft.country!=="All"&&!lc(i.country).includes(lc(ft.country)))return false;
+    if(ft.year&&ft.year!=="All"&&String(i.year)!==String(ft.year))return false;
+    if(ft.classify&&ft.classify!=="All"&&!lc(i.name).includes("["+lc(ft.classify).replace(/ dub$/,"")+"]"))return false;
+    return true})};
 
 /* ---------- home ---------- */
 async function home(){
@@ -401,9 +431,9 @@ async function home(){
   const ban=(HOME.find(s=>s.section==="Banner")||{items:[]}).items.slice(0,5);
   const rest=HOME.filter(s=>s.section!=="Banner"&&((s.items&&s.items.length)||(s.kind==="filter"&&s.tabs&&s.tabs.length))).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));
   await meReady;
-  const frag=[tabBar()].filter(Boolean);
-  const cont=ME&&!TAB?PROG.filter(p=>p.slug&&p.sid):[];
-  if(ban.length){const box=h("div",{class:"hero"}),N=ban.length,D=LITE?10000:6000;let i=0,hT=0,sx=0,sy=0;
+  const frag=[TABS.length?tabBar():catBar()].filter(Boolean);
+  const cont=ME&&!TAB&&CAT==="all"?PROG.filter(p=>p.slug&&p.sid):[];
+  if(ban.length&&CAT==="all"){const box=h("div",{class:"hero"}),N=ban.length,D=LITE?10000:6000;let i=0,hT=0,sx=0,sy=0;
     const to=k=>{clearTimeout(hT);i=(k+N)%N;draw()};
     const tick=()=>{if(!box.isConnected)return;if(document.hidden){hT=setTimeout(tick,D);return}to(i+1)};
     function draw(){const b=ban[i],cur=i;box.className="hero";
@@ -425,7 +455,14 @@ async function home(){
     [...rw.querySelectorAll(".card")].forEach((c,k)=>{const p=items[k];c.onclick=()=>go("#/watch/"+p.sid+"/"+p.slug+"/"+p.season+"/"+p.episode);
       if(p.dur)c.querySelector(".pw").append(h("div",{class:"prog"},h("i",{style:"width:"+Math.min(100,p.pos/p.dur*100)+"%"})))});
     frag.splice(cutAt,0,h("div",{class:"sec-row"},h("h2",{},"▶ Continue watching")),rw)}
-  rest.forEach(s=>frag.push(...(s.kind==="filter"?filterBlock(s):secBlock(s))));
+  if(CAT==="all"){rest.forEach(s=>frag.push(...(s.kind==="filter"?filterBlock(s):secBlock(s))))}
+  else{const seen=new Set();let n=0;const lb=(CATS.find(c=>c[0]===CAT)||[])[1]||"";
+    rest.forEach(s=>{if(s.kind==="filter")return;
+      const its=s.items.filter(i=>kindOf(i,s.section)===CAT&&!seen.has(i.slug));
+      if(its.length<3)return;its.forEach(i=>seen.add(i.slug));n++;
+      frag.push(h("div",{class:"sec-row"},h("h2",{},s.section)),railBox(its.slice(0,20)))});
+    if(!n)frag.push(h("div",{class:"state"},"Nothing in this category on the home feed right now."));
+    frag.push(h("button",{class:"pri",style:"width:100%;margin:18px 0",onclick:()=>go("#/browse/"+CAT)},"Browse all "+lb+" ›"))}
   if(!frag.length)frag.push(h("div",{class:"state"},"Nothing found."));
   $app.replaceChildren(...frag)}
 
@@ -603,7 +640,7 @@ async function watch(id,slug,se,ep){
 
 /* ---------- router ---------- */
 function route(){kill();$app.classList.remove("w");const p=location.hash.replace(/^#\/?/,"").split("/").filter(Boolean).map(decodeURIComponent);drawNav();scrollTo({top:0,left:0,behavior:"instant"});
-  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage();home()}
+  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
 addEventListener("hashchange",route);route();
 </script>
 </body>

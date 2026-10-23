@@ -137,7 +137,8 @@ def _item(s):
     badge = cn if isinstance(cn, str) and cn else ("Hindi" if "[hindi]" in t.lower() else None)  # "Hindi" tag shown on the card
     return {"name": t or None, "poster_url": (s.get("cover") or {}).get("url"),
             "slug": s.get("detailPath"), "subject_id": s.get("subjectId"), "rating": s.get("imdbRatingValue"),
-            "badge": badge}
+            "badge": badge, "type": s.get("subjectType"), "genre": s.get("genre"), "country": s.get("countryName"),
+            "year": str(s.get("releaseDate") or "")[:4]}
 
 
 # ===== MovieBox's real home / tabs / "All" (not search-based: MovieBox updates trending itself every day) =====
@@ -215,6 +216,32 @@ def _toptabs(d):
     return []
 
 
+def _platforms(d):
+    """Streaming services row (Netflix / Prime ...) = `platformList` of the home response."""
+    out = []
+    for p in (d.get("data") or {}).get("platformList") or []:
+        if not isinstance(p, dict):
+            continue
+        n = p.get("name") or p.get("platform") or p.get("platformName") or p.get("title")
+        if not n:
+            continue
+        img = p.get("image") or p.get("logo") or p.get("icon") or p.get("cover")
+        if isinstance(img, dict):
+            img = img.get("url")
+        out.append({"name": n, "by": p.get("uploadBy") or "", "image": img if isinstance(img, str) else None})
+    return out
+
+
+def _sentinel(d):
+    """MovieBox answers a guest's /subject/filter with total=1000000 and a junk default list (kids songs, music videos)."""
+    x = (d.get("data") or {}) if isinstance(d, dict) else {}
+    for src in (x, x.get("pager") if isinstance(x.get("pager"), dict) else {}):
+        for k in ("totalCount", "total", "count"):
+            if str(src.get(k)) == "1000000":
+                return True
+    return False
+
+
 def _extract(d):
     x = d.get("data") if isinstance(d, dict) else None
     if isinstance(x, list):
@@ -239,7 +266,7 @@ def _home_url(tab="", page=0):
 @app.get("/home")
 async def home(tab: str = "", page: int = 0):
     d = await call(_home_url(tab, page))
-    return {"sections": _sections(d), "tabs": _toptabs(d), "_debug": d.get("_http") or d.get("_err")}
+    return {"sections": _sections(d), "tabs": _toptabs(d), "platforms": _platforms(d), "_debug": d.get("_http") or d.get("_err")}
 
 
 @app.get("/more")
@@ -287,8 +314,11 @@ async def filter_list(query: str, page: int = 1, per: int = 24):
     for method, u, payload in cands:
         d = await call(u, payload) if method == "POST" else await call(u)
         its = _extract(d)
+        sen = _sentinel(d)
+        if sen:
+            its = []
         err = d.get("_http") or d.get("_err")
-        row = {"m": method, "url": u[:140], "n": len(its), "err": err}
+        row = {"m": method, "url": u[:140], "n": len(its), "err": err, "sentinel": sen}
         if not its and not err:
             row["head"] = json.dumps(d, ensure_ascii=False)[:300]
         tried.append(row)
