@@ -640,11 +640,11 @@ async def midnight(page: int = 0):
     """MovieBox's 'Midnight' section is adult (18+) content. Off by default; the site owner must set ENABLE_MIDNIGHT=1."""
     if os.getenv("ENABLE_MIDNIGHT") != "1":
         return JSONResponse({"error": "Midnight (18+) is disabled. Set ENABLE_MIDNIGHT=1 to enable it."}, status_code=403)
-    h = await home()
-    tab = next((t for t in h["tabs"] if re.search(r"midnight", str(t.get("name")), re.I)), None)
-    if not tab:
-        return {"sections": [], "note": "no Midnight tab in the home response", "tabs": h["tabs"]}
-    return await home(tab=tab["id"], page=page)
+    # Verified on the phone scan: /tab-operating?tabId=ONEROOM_MIDNIGHT -> HTTP 200 with ~19 rows.
+    # (The old code looked for a "Midnight" tab inside the /home response; that tab does not exist there.)
+    d = await call(f"{API}/tab-operating?tabId=ONEROOM_MIDNIGHT")
+    secs = [x for x in _sections(d) if x["items"]]
+    return {"sections": secs, "tabs": [], "platforms": [], "_debug": d.get("_http") or d.get("_err")}
 
 
 @app.get("/search")

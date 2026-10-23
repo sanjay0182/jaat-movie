@@ -153,7 +153,7 @@ video::cue{font-size:1.1em;background:rgba(0,0,0,.65);color:#fff}
 h2.sec{font-size:17px;margin:20px 0 10px}
 .sec-row{margin:20px 0 10px}.sec-row h2{font-size:17px}
 .rail{grid-auto-columns:clamp(132px,40vw,200px);gap:12px;padding-bottom:4px}
-.grid{grid-template-columns:repeat(auto-fill,minmax(clamp(150px,44vw,220px),1fr));gap:12px}
+.grid{grid-template-columns:repeat(auto-fill,minmax(min(clamp(150px,44vw,220px),calc(50% - 6px)),1fr));gap:12px}
 .card{border-radius:12px}
 .t{padding:8px 10px 10px;font-size:14px;font-weight:600;line-height:1.3}
 .rt{top:6px;right:6px;font-size:12px;padding:3px 7px;border-radius:7px}.bd{font-size:11px}
@@ -323,7 +323,7 @@ document.getElementById("theme").onclick=()=>setTheme(document.documentElement.d
 
 const IC={mid:'<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',disc:'<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',home:'<path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',acct:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.5 4-6 8-6s7 1.5 8 6"/>',list:'<path d="M12 21s-7-4.6-9.3-9.2C1.2 8.6 3 5 6.4 5c2 0 3.6 1.2 5.6 3.4C14 6.2 15.6 5 17.6 5 21 5 22.8 8.6 21.3 11.8 19 16.4 12 21 12 21z"/>'};
 function drawNav(){const cur=location.hash.replace(/^#\/?/,"").split("/")[0];
-  const it=[["home","Home",()=>go("#/")],["disc","Discover",()=>go("#/discover")],...(MID?[["midnight","Midnight",()=>go("#/midnight")]]:[]),["list","My List",()=>go("#/list")],["acct",ME?ME.username:"Account",()=>ME?accountModal():authModal()]];
+  const it=[["home","Home",()=>go("#/")],...(MID?[["midnight","Midnight",()=>go("#/midnight")]]:[]),["list","My List",()=>go("#/list")],["acct",ME?ME.username:"Account",()=>ME?accountModal():authModal()]];
   $nav.replaceChildren(...it.map(([k,l,f])=>{const b=h("button",{class:(k==="home"&&!["list","show","watch","discover","midnight"].includes(cur))||k===cur?"on":"",onclick:f},l);b.insertAdjacentHTML("afterbegin",'<svg viewBox="0 0 24 24">'+IC[k]+"</svg>");return b}))}
 
 /* ---------- cards ---------- */
@@ -488,7 +488,7 @@ document.getElementById("sbtn").onclick=openSearch;
 document.getElementById("logo").onclick=()=>go("#/");
 
 /* ---------- list ---------- */
-async function listPage(){await meReady;$app.replaceChildren(h("h2",{class:"sec"},"My List"),!ME?h("div",{class:"state"},"Sign in to access your list on every device. ",h("button",{class:"pri",style:"margin-top:10px",onclick:authModal},"Sign in")):null,favs.length?h("div",{class:"grid"},favs.map(card)):h("div",{class:"state"},"Your list is empty. Tap “Add to My List” on any title."),
+async function listPage(){await meReady;mount(h("h2",{class:"sec"},"My List"),!ME?h("div",{class:"state"},"Sign in to access your list on every device. ",h("button",{class:"pri",style:"margin-top:10px",onclick:authModal},"Sign in")):null,favs.length?h("div",{class:"grid"},favs.map(card)):h("div",{class:"state"},"Your list is empty. Tap “Add to My List” on any title."),
     ME?(()=>{const hist=PROG.filter(p=>p.slug&&p.sid);return h("div",{},h("h2",{class:"sec"},"History",h("span",{style:"font-weight:400;font-size:13px;color:var(--dim);margin-left:8px"},hist.length+" titles")),
       hist.length?h("div",{class:"grid"},hist.map(contCard)):h("div",{class:"state"},"No watch history yet."))})():null)}
 function toggleFav(i){const k=favs.findIndex(f=>f.slug===i.slug);const on=k<0;if(k>=0)favs.splice(k,1);else favs.unshift(i);store.set("mb_favs",JSON.stringify(favs));
@@ -650,25 +650,6 @@ async function watch(id,slug,se,ep){
 /* ---------- router ---------- */
 
 /* ---------- Discover: MovieBox rankings (Most Watched) ---------- */
-async function discoverPage(){
-  const chips=h("div",{class:"cats sub"}),grid=h("div",{class:"grid"}),st=h("div",{class:"state"},"Loading…"),btn=h("button",{class:"btn",style:"margin:16px auto;display:none"},"Load more");
-  mount(h("h2",{class:"sec"},"Discover"),chips,grid,st,btn);
-  const gid=s=>{const m=s.more||{};return String(m.genreTopId||m.rankingId||m.rankId||m.id||m.opId||"")};
-  let src=[];
-  try{src=((await api("/ranking")).rankings||[]).map(r=>({name:r.name,url:"/ranking?id="+encodeURIComponent(r.id)}))}catch(e){}
-  if(!src.length){let R;try{R=HC[""]||(HC[""]=await api("/home"))}catch(e){st.textContent="Unable to connect to the server.";return}
-    src=(R.sections||[]).filter(s=>s.section!=="Banner"&&gid(s)).map(s=>({name:s.section,url:"/ranking?id="+encodeURIComponent(gid(s))}))}
-  if(!src.length){st.textContent="Nothing available right now.";return}
-  let cur=0,page=1,busy=false,done=false,gen=0;
-  const load=async()=>{if(busy||done)return;busy=true;btn.style.display="none";const g=gen,u=src[cur].url+(src[cur].url.includes("?")?"&":"?")+"page="+page;
-    try{const j=await api(u),it=j.items||[];if(g!==gen){busy=false;return}
-      if(it.length){it.forEach(i=>grid.append(card(i)));page++;st.textContent="";btn.style.display="block"}
-      else{done=true;st.textContent=grid.children.length?"That's everything.":"Nothing available here right now."}}
-    catch(e){st.textContent="Failed to load."}busy=false};
-  const pick=k=>{cur=k;gen++;page=1;busy=false;done=false;grid.replaceChildren();st.textContent="Loading…";[...chips.children].forEach((b,j)=>b.classList.toggle("on",j===k));load()};
-  src.forEach((t,k)=>chips.append(h("button",{class:"cat"+(k===0?" on":""),onclick:()=>pick(k)},t.name)));
-  btn.onclick=load;load()}
-
 /* ---------- Midnight (18+): only shown when the server has ENABLE_MIDNIGHT=1; asks the viewer to confirm they are 18+ ---------- */
 async function midnightPage(){
   if(!MID){go("#/");return}
@@ -682,7 +663,7 @@ async function midnightPage(){
   const secs=(R.sections||[]).filter(s=>s.section!=="Banner"&&s.items&&s.items.length);
   mount(h("h2",{class:"sec"},"Midnight (18+)"),secs.length?secs.map(s=>secBlock(s)).flat():h("div",{class:"state"},"Nothing found."))}
 function route(){kill();$app.classList.remove("w");const p=location.hash.replace(/^#\/?/,"").split("/").filter(Boolean).map(decodeURIComponent);drawNav();scrollTo({top:0,left:0,behavior:"instant"});
-  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="discover")return discoverPage();if(p[0]==="midnight")return midnightPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
+  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="midnight")return midnightPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
 addEventListener("hashchange",route);route();
 </script>
 </body>
