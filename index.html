@@ -340,14 +340,14 @@ const skRail=()=>[h("h2",{class:"sec"},"\u00a0"),h("div",{class:"rail"},[1,2,3,4
 /* ---------- tabs / sections / All (all driven by the MovieBox API, nothing hardcoded) ---------- */
 function tabBar(){if(!TABS.length)return null;
   return h("div",{class:"cats toptabs"},TABS.map((t,k)=>h("button",{class:"cat"+((TAB===""&&k===0)||(TAB&&TAB===t.id)?" on":""),onclick:()=>{TAB=k===0?"":(t.id||"");home()}},t.name)))}
-const moreOf=s=>{const m=s.more||{};return{id:String(m.rankingId||m.rankId||m.id||m.opId||""),url:m.url||m.jumpUrl||m.path||m.link||"",title:s.section}};
-const hasMore=s=>{const m=s.more||{};return!!(m.rankingId||m.rankId||m.id||m.opId||m.url||m.jumpUrl||m.path||m.link)||s.items.length>=9};
+const moreOf=s=>{const m=s.more||{};return{id:String(m.genreTopId||m.rankingId||m.rankId||m.id||m.opId||""),url:m.url||m.jumpUrl||m.path||m.link||"",title:s.section}};
+const hasMore=s=>{const m=s.more||{};return!!(m.genreTopId||m.rankingId||m.rankId||m.id||m.opId||m.url||m.jumpUrl||m.path||m.link)||s.items.length>=9};
 const SECT={};
 function browsePage(pre){
-  const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All"};if(pre==="tv")st.tab="5";if(pre==="anime")st.genre="Animation";
+  const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All"};if(pre==="tv")st.tab="5";if(pre==="anime")st.tab="8";
   const pairs=a=>a.map(v=>[v,v]);
   const groups=[
-    ["Type","tab",[["Movies","2"],["Dramas & series","5"]]],
+    ["Type","tab",[["Movies","2"],["Dramas & series","5"],["Anime","8"]]],
     ["Language","classify",["All","Hindi dub","Punjabi dub","Bengali dub","Tamil dub","Telugu dub","Malayalam dub","Kannada dub","Marathi dub","Urdu dub","English dub"].map(v=>[v.replace(/ dub$/,""),v])],
     ["Genre","genre",pairs(["All","Action","Adventure","Animation","Comedy","Crime","Documentary","Drama","Family","Fantasy","Horror","Mystery","Romance","Sci-Fi","Thriller","War"])],
     ["Country","country",pairs(["All","India","United States","South Korea","Japan","China","Thailand","Turkey","United Kingdom","Pakistan","Philippines","Indonesia"])],
@@ -357,7 +357,7 @@ function browsePage(pre){
     h("div",{class:"cwrap"},opts.map(([l,v])=>h("button",{class:"cat"+(st[key]===v?" on":""),onclick:()=>{st[key]=v;paint()}},l)))]));
   paint();
   const show=h("button",{class:"pri",style:"width:100%;margin-top:22px",onclick:()=>{
-    const tl=st.tab==="5"?"Dramas & series":"Movies";
+    const tl=st.tab==="5"?"Dramas & series":st.tab==="8"?"Anime":"Movies";
     const title=[tl,st.classify!=="All"?st.classify.replace(/ dub$/,""):"",st.genre!=="All"?st.genre:"",st.country!=="All"?st.country:"",st.year!=="All"?st.year:""].filter(Boolean).join(" · ");
     const query="type=/home/movieFilter&tabId="+st.tab+"&filterType="+JSON.stringify({classify:st.classify,country:st.country,genre:st.genre,sort:"ForYou",year:st.year});
     go("#/all/"+encodeURIComponent(JSON.stringify({title,query})))}},"Show results");
@@ -416,7 +416,7 @@ const applyFilter=(P,q)=>{let tab="2",ft={};
   try{const u=new URLSearchParams(q);tab=u.get("tabId")||"2";ft=JSON.parse(u.get("filterType")||"{}")}catch(e){}
   const lc=v=>String(v||"").toLowerCase();
   return P.filter(i=>{const k=kindOf(i,"");
-    if(tab==="5"?k!=="tv":(k==="tv"||k==="short"))return false;
+    if(tab==="5"){if(k!=="tv")return false}else if(tab==="8"){if(k!=="anime")return false}else if(k==="tv"||k==="short")return false;
     if(ft.genre&&ft.genre!=="All"&&!lc(i.genre).includes(lc(ft.genre)))return false;
     if(ft.country&&ft.country!=="All"&&!lc(i.country).includes(lc(ft.country)))return false;
     if(ft.year&&ft.year!=="All"&&String(i.year)!==String(ft.year))return false;

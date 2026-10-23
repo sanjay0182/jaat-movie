@@ -144,7 +144,7 @@ def _item(s):
 # ===== MovieBox's real home / tabs / "All" (not search-based: MovieBox updates trending itself every day) =====
 _TAB_KEYS = ("tabList", "tabs", "navList", "homeTabs", "topTabs", "navigation", "categoryList", "channelList")
 _SUB_KEYS = ("tabs", "tabList", "subTabs", "categoryList", "categories", "filters", "genres")
-_ID_KEYS = ("rankingId", "rankId", "opId", "id", "url", "jumpUrl", "path", "link")
+_ID_KEYS = ("genreTopId", "rankingId", "rankId", "opId", "id", "url", "jumpUrl", "path", "link")
 
 
 def _nm(d):
@@ -301,12 +301,16 @@ async def filter_list(query: str, page: int = 1, per: int = 24):
     except Exception:
         ft = {}
     tab = prm.get("tabId", "")
+    # The web API numbers its channels 1 = movies, 2 = TV, 4 = anime; the "Categories" widget uses the app's ids (2 / 5 / 8).
+    chan = {"2": "1", "5": "2", "8": "4"}.get(tab, tab)
+    lang = ft.get("classify")
+    b1 = {**ft, **({"language": lang} if lang and lang != "All" else {}), "channelId": chan, "page": page, "perPage": per}
+    b2 = {**ft, "channelId": chan, "page": page, "perPage": per}
     body = {**ft, "tabId": tab, "channelId": tab, "page": page, "perPage": per}
-    flat = urlencode({**ft, "tabId": tab, "channelId": tab, "page": page, "perPage": per})
-    cands = [
+    flat = urlencode(body)
+    cands = [("POST", f"{API}/subject/filter", b) for b in ((b1,) if b1 == b2 else (b1, b2))] + [
         ("POST", f"{API}/subject/filter", body),
         ("POST", f"{API}/home/movieFilter", body),
-        ("POST", f"{API}/subject/browse", body),
         ("GET", f"{API}/subject/filter?{flat}", None),
         ("GET", f"{API}/home/movieFilter?tabId={tab}&filterType={quote(json.dumps(ft, separators=(',', ':')), safe='')}&page={page}&perPage={per}", None),
     ]
@@ -318,13 +322,86 @@ async def filter_list(query: str, page: int = 1, per: int = 24):
         if sen:
             its = []
         err = d.get("_http") or d.get("_err")
-        row = {"m": method, "url": u[:140], "n": len(its), "err": err, "sentinel": sen}
+        row = {"m": method, "url": u[:140], "n": len(its), "err": err, "sentinel": sen,
+               "chan": (payload or {}).get("channelId")}
         if not its and not err:
             row["head"] = json.dumps(d, ensure_ascii=False)[:300]
         tried.append(row)
         if its:
             return {"items": its, "page": page, "via": row, "tried": tried}
     return {"items": [], "page": page, "tried": tried}
+
+
+_LAB_HTML = r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MovieBox lab</title>
+<style>body{font:14px system-ui,sans-serif;background:#0d0d10;color:#eee;margin:0;padding:12px}
+button,select,input,textarea{font:inherit;background:#1d1d24;color:#eee;border:1px solid #333;border-radius:8px;padding:8px}
+.row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;align-items:center}
+textarea{width:100%;box-sizing:border-box;height:120px;font-family:monospace;font-size:12px}
+input.p{width:100%;box-sizing:border-box;font-family:monospace;font-size:12px}
+pre{white-space:pre-wrap;word-break:break-all;background:#15151a;padding:10px;border-radius:8px;font-size:12px}
+.go{background:#e50914;border-color:#e50914}h3{margin:4px 0}small{color:#999}</style></head><body>
+<h3>MovieBox lab</h3><small>Requests go from your server to MovieBox (token added automatically).</small>
+<div class="row" id="pre"></div>
+<small>Home rows (tap = open that row's full list via genreTopId):</small>
+<div class="row" id="ids"></div>
+<div class="row"><select id="m"><option>GET</option><option>POST</option></select><button class="go" id="run">Run</button><label><input type="checkbox" id="rawc"> raw JSON</label></div>
+<input class="p" id="path"><textarea id="body" placeholder="POST body (JSON)"></textarea>
+<pre id="out">Tap a preset, then Run.</pre>
+<script>
+const $=i=>document.getElementById(i);
+const F=(ch,x)=>JSON.stringify(Object.assign({channelId:ch,page:1,perPage:12,genre:"All",country:"All",year:"All",sort:"ForYou",classify:"All"},x||{}));
+const PRE=[["Home","GET","/home?host=moviebox.ph",""],
+["Movies ch1","POST","/subject/filter",F("1")],["TV ch2","POST","/subject/filter",F("2")],["Anime ch4","POST","/subject/filter",F("4")],
+["Movies Action 2025","POST","/subject/filter",F("1",{genre:"Action",year:"2025"})],
+["Movies Hindi (classify)","POST","/subject/filter",F("1",{classify:"Hindi dub"})],
+["Movies Hindi (language)","POST","/subject/filter",F("1",{language:"Hindi dub"})],
+["Old: TV ch5","POST","/subject/filter",F("5")],
+["Trending","GET","/subject/trending?page=0&perPage=12",""],
+["Midnight","GET","/tab-operating?tabId=ONEROOM_MIDNIGHT",""],
+["Bottom tabs","GET","/tab/get-bottom-tab-list",""],
+["Search","POST","/subject/search",JSON.stringify({keyword:"avatar",page:1,perPage:12})]];
+function find(o,d){if(d>6||!o||typeof o!=="object")return null;
+ if(Array.isArray(o)){if(o.length&&o[0]&&typeof o[0]==="object"&&("title" in o[0]||"subject" in o[0]))return o;for(const x of o){const r=find(x,d+1);if(r)return r}return null}
+ for(const k of Object.keys(o)){const r=find(o[k],d+1);if(r)return r}return null}
+function summ(d){let s="";if(d._http||d._err)s+="HTTP/ERR: "+(d._http||d._err)+" "+(d._body||"")+"\n";
+ const x=d.data||{},pg=x.pager||{},tot=pg.totalCount!==undefined?pg.totalCount:(x.total!==undefined?x.total:pg.total);
+ if(tot!==undefined)s+="total: "+tot+(String(tot)==="1000000"?"  <- SENTINEL (filter ignored)":"")+"\n";
+ const a=find(d.data||d,0);
+ if(a)s+="items: "+a.length+"\n"+a.slice(0,12).map(i=>"- "+((i.subject&&i.subject.title)||i.title)+(i.subjectType!=null?" ["+i.subjectType+"]":"")).join("\n");
+ else s+="no item list found. data keys: "+Object.keys(x).join(", ");return s}
+async function run(){$("out").textContent="...";let body=null;
+ if($("m").value==="POST"){try{body=JSON.parse($("body").value||"{}")}catch(e){$("out").textContent="Body is not valid JSON";return}}
+ try{const r=await fetch("/lab/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({method:$("m").value,path:$("path").value,body:body})});
+  const d=await r.json();$("out").textContent=$("rawc").checked?JSON.stringify(d,null,1).slice(0,20000):summ(d)}catch(e){$("out").textContent="Error: "+e}}
+function setReq(m,p,b,go){$("m").value=m;$("path").value=p;$("body").value=b;if(go)run()}
+PRE.forEach(([n,m,p,b])=>{const e=document.createElement("button");e.textContent=n;e.onclick=()=>setReq(m,p,b,true);$("pre").append(e)});
+$("run").onclick=run;
+fetch("/lab/ids").then(r=>r.json()).then(L=>L.forEach(o=>{const e=document.createElement("button");e.textContent=o.title;
+ e.onclick=()=>setReq("GET","/ranking-list/content?id="+o.id+"&page=1&perPage=12","",true);$("ids").append(e)})).catch(()=>{});
+</script></body></html>'''
+
+
+@app.get("/lab")
+async def lab_page():
+    """Test page: send any request to MovieBox from the browser and see the answer, without changing code."""
+    return Response(_LAB_HTML, media_type="text/html")
+
+
+@app.post("/lab/run")
+async def lab_run(req: Request):
+    j = await req.json()
+    path = j.get("path") or ""
+    if not path.startswith("/"):
+        return JSONResponse({"_err": "path must start with /"})
+    post = (j.get("method") or "GET").upper() == "POST"
+    return JSONResponse(await call(API + path, (j.get("body") or {}) if post else None))
+
+
+@app.get("/lab/ids")
+async def lab_ids():
+    d = await call(_home_url())
+    return [{"title": op.get("title") or op.get("type"), "id": op.get("genreTopId")}
+            for op in (d.get("data") or {}).get("operatingList") or [] if op.get("genreTopId")]
 
 
 @app.get("/shape")
