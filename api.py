@@ -528,6 +528,10 @@ async def browse(type: str = "movie", genre: str = "All", country: str = "All", 
     ch = TYPES.get(type)
     if not ch:
         return JSONResponse({"error": "type must be one of " + ", ".join(TYPES)}, status_code=400)
+    if type == "anime":  # channel 4 is not anime (phone test); anime = series channel + Japan
+        ch = "2"
+        if country == "All":
+            country = "Japan"
     body = {"channelId": ch, "page": page, "perPage": per, "genre": genre, "country": country,
             "year": year, "sort": sort, "classify": language}
     d = await call(f"{API}/subject/filter", body)
@@ -546,6 +550,84 @@ async def ranking(id: str = "", page: int = 1, per: int = 24):
     rl = (d.get("data") or {}).get("rankingList") or []
     return {"rankings": [{"name": r.get("name"), "id": str(r.get("id")), "path": r.get("path")} for r in rl if isinstance(r, dict) and r.get("id")],
             "_debug": d.get("_http") or d.get("_err")}
+
+
+# ===== Real MovieBox tabs: Movie / TV Show / Anime (rows like the MovieBox site) =====
+# Scan result: tab-operating?tabId=ONEROOM_MOVIE works (14 rows). ONEROOM_TV / ONEROOM_ANIME give HTTP 400,
+# so TV and Anime rows are built from /subject/filter (channelId 2 and 4) + the matching home rows.
+_TABCACHE = {}
+
+
+async def _frow(title, ch, **kw):
+    body = {"channelId": ch, "page": 1, "perPage": 18, "genre": "All", "country": "All", "year": "All", "sort": "ForYou", "classify": "All"}
+    body.update(kw)
+    d = await call(f"{API}/subject/filter", body)
+    its = _extract(d)
+    q = "type=/home/movieFilter&tabId=%s&filterType=%s" % ({"1": "2", "2": "5", "4": "8"}[ch], json.dumps(
+        {"classify": body["classify"], "country": body["country"], "genre": body["genre"], "sort": body["sort"], "year": body["year"]}))
+    return {"section": title, "items": its, "more": {"query": q}, "tabs": None, "kind": None, "query": q}
+
+
+# Phone test result: channelId 4 is NOT anime (returns random films/shows), and "Top Rated" sort returns junk.
+# Anime = channel 2 (series) + country Japan (verified: Naruto, Demon Slayer, Spy x Family, Tokyo Revengers),
+# anime movies = channel 1 + country Japan. Rows that come back empty are dropped automatically.
+_TAB_ROWS = {
+    "tv": [("Hottest TV Shows", "2", {"sort": "Hottest"}), ("Hindi Dubbed Series", "2", {"classify": "Hindi dub"}),
+           ("Latest Releases", "2", {"sort": "Latest"}), ("Korean Dramas", "2", {"country": "Korea"}),
+           ("Indian Series", "2", {"country": "India"}), ("US Series", "2", {"country": "United States"}),
+           ("Crime", "2", {"genre": "Crime", "sort": "Hottest"}), ("Romance", "2", {"genre": "Romance", "sort": "Hottest"}),
+           ("Comedy", "2", {"genre": "Comedy", "sort": "Hottest"}), ("Thriller", "2", {"genre": "Thriller", "sort": "Hottest"}),
+           ("Sci-Fi", "2", {"genre": "Sci-Fi", "sort": "Hottest"})],
+    "anime": [("Hottest Anime", "2", {"country": "Japan", "sort": "Hottest"}),
+              ("Hindi Dubbed Anime", "2", {"country": "Japan", "classify": "Hindi dub", "sort": "Hottest"}),
+              ("Latest Anime", "2", {"country": "Japan", "sort": "Latest"}),
+              ("Anime Movies", "1", {"country": "Japan", "sort": "Hottest"}),
+              ("Hindi Dubbed Anime Movies", "1", {"country": "Japan", "classify": "Hindi dub"}),
+              ("Animation (Cartoons)", "2", {"genre": "Animation", "sort": "Hottest"}),
+              ("Anime Action", "2", {"country": "Japan", "genre": "Action", "sort": "Hottest"}),
+              ("Anime Adventure", "2", {"country": "Japan", "genre": "Adventure", "sort": "Hottest"}),
+              ("Anime Comedy", "2", {"country": "Japan", "genre": "Comedy", "sort": "Hottest"}),
+              ("Anime Romance", "2", {"country": "Japan", "genre": "Romance", "sort": "Hottest"}),
+              ("Anime Fantasy", "2", {"country": "Japan", "genre": "Fantasy", "sort": "Hottest"})],
+}
+_TAB_HOME_ROWS = {"tv": re.compile(r"series|drama|tv|show", re.I), "anime": re.compile(r"anime|animation", re.I)}
+
+
+@app.get("/tab/{name}")
+async def tab_page(name: str):
+    """name = movie | tv | anime. Same shape as /home ({sections: [...]}), so the frontend draws it with the same code."""
+    name = name.lower()
+    if name not in ("movie", "tv", "anime"):
+        return JSONResponse({"error": "name must be movie, tv or anime"}, status_code=400)
+    c = _TABCACHE.get(name)
+    if c and time.time() - c[0] < 300:
+        return c[1]
+    secs = []
+    if name == "movie":
+        d = await call(f"{API}/tab-operating?tabId=ONEROOM_MOVIE")
+        seen = set()
+        for s_ in _sections(d):   # MovieBox's own rows; the same row (e.g. Trending in Cinema) comes twice -> keep once
+            key = (s_["section"], str((s_.get("more") or {}).get("genreTopId") or ""))
+            if key in seen or (not s_["items"] and s_.get("kind") != "filter"):
+                continue
+            seen.add(key)
+            if s_.get("kind") == "filter" and s_.get("tabs"):
+                s_["tabs"] = [t for t in s_["tabs"] if t.get("query")]
+            secs.append(s_)
+        if not any(x["items"] for x in secs):  # fallback if the tab call fails
+            res = await asyncio.gather(*[_frow(t, "1", **kw) for t, kw in [("Hottest Movies", {"sort": "Hottest"}), ("Hindi Dubbed Movies", {"classify": "Hindi dub"}), ("Latest Releases", {"sort": "Latest"})]])
+            secs = [r for r in res if r["items"]]
+    else:
+        res = await asyncio.gather(*[_frow(t, ch, **kw) for t, ch, kw in _TAB_ROWS[name]])
+        secs = [r for r in res if r["items"]]
+        h = await call(_home_url())   # plus the matching rows of MovieBox's own home (Top Anime, Best Asian Series, Western TV ...)
+        extra = [s_ for s_ in _sections(h) if s_.get("kind") != "filter" and s_["section"] != "Banner" and s_["items"]
+                 and _TAB_HOME_ROWS[name].search(str(s_["section"])) and "short" not in str(s_["section"]).lower()]
+        secs = extra + secs
+    out = {"sections": secs, "tabs": [], "platforms": [], "type": name}
+    if secs:
+        _TABCACHE[name] = (time.time(), out)
+    return out
 
 
 @app.get("/midnight/status")
