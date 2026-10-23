@@ -648,14 +648,16 @@ async function watch(id,slug,se,ep){
 
 /* ---------- router ---------- */
 
-/* ---------- Discover: rankings (home rows), Upcoming, Live ---------- */
+/* ---------- Discover: MovieBox rankings (Most Watched) ---------- */
 async function discoverPage(){
   const chips=h("div",{class:"cats sub"}),grid=h("div",{class:"grid"}),st=h("div",{class:"state"},"Loading…"),btn=h("button",{class:"btn",style:"margin:16px auto;display:none"},"Load more");
   mount(h("h2",{class:"sec"},"Discover"),chips,grid,st,btn);
-  let R;try{R=HC[""]||(HC[""]=await api("/home"))}catch(e){st.textContent="Unable to connect to the server.";return}
   const gid=s=>{const m=s.more||{};return String(m.genreTopId||m.rankingId||m.rankId||m.id||m.opId||"")};
-  const src=[...(R.sections||[]).filter(s=>s.section!=="Banner"&&gid(s)).map(s=>({name:s.section,url:"/ranking?id="+encodeURIComponent(gid(s))})),
-    {name:"Upcoming",url:"/extra/upcoming?x=1"},{name:"Live",url:"/extra/live?x=1"}];
+  let src=[];
+  try{src=((await api("/ranking")).rankings||[]).map(r=>({name:r.name,url:"/ranking?id="+encodeURIComponent(r.id)}))}catch(e){}
+  if(!src.length){let R;try{R=HC[""]||(HC[""]=await api("/home"))}catch(e){st.textContent="Unable to connect to the server.";return}
+    src=(R.sections||[]).filter(s=>s.section!=="Banner"&&gid(s)).map(s=>({name:s.section,url:"/ranking?id="+encodeURIComponent(gid(s))}))}
+  if(!src.length){st.textContent="Nothing available right now.";return}
   let cur=0,page=1,busy=false,done=false,gen=0;
   const load=async()=>{if(busy||done)return;busy=true;btn.style.display="none";const g=gen,u=src[cur].url+(src[cur].url.includes("?")?"&":"?")+"page="+page;
     try{const j=await api(u),it=j.items||[];if(g!==gen){busy=false;return}

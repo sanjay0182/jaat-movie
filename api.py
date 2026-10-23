@@ -137,7 +137,7 @@ async def webmanifest():
 
 @app.get("/")
 async def ui():
-    return FileResponse("index.html")
+    return FileResponse("index.html", headers={"Cache-Control": "no-cache"})
 
 
 def _item(s):
@@ -537,35 +537,15 @@ async def browse(type: str = "movie", genre: str = "All", country: str = "All", 
 
 @app.get("/ranking")
 async def ranking(id: str = "", page: int = 1, per: int = 24):
-    """Most Watched (/ranking-list). With id = a ranking/genreTopId -> its list; without -> the list of rankings (paths tried in turn)."""
+    """Most Watched (/ranking-list). With id -> that ranking's titles; without -> the list of rankings."""
     if id:
         d = await call(f"{API}/ranking-list/content?id={quote(id, safe='')}&page={page}&perPage={per}")
         return {"items": _extract(d), "page": page, "_debug": d.get("_http") or d.get("_err")}
-    tried = []
-    for p in ("/ranking-list", "/ranking-list/list", "/ranking-list/index"):
-        d = await call(API + p)
-        tried.append({"path": p, "err": d.get("_http") or d.get("_err"), "head": json.dumps(d, ensure_ascii=False)[:200]})
-        if d and not (d.get("_http") or d.get("_err")):
-            return {"data": d.get("data"), "via": p, "tried": tried}
-    return {"data": None, "tried": tried}
-
-
-@app.get("/extra/{name}")
-async def extra(name: str, page: int = 1):
-    """Other site sections (upcoming / live). The API paths are UNVERIFIED guesses; `tried` shows what answered."""
-    paths = {"upcoming": ("/upcoming", "/subject/upcoming", "/home/upcoming"),
-             "live": ("/live/list?tab=live", "/live/list", "/sport/live")}.get(name)
-    if not paths:
-        return JSONResponse({"error": "name must be upcoming or live"}, status_code=400)
-    tried = []
-    for p in paths:
-        u = f"{API}{p}{'&' if '?' in p else '?'}page={page}"
-        d = await call(u)
-        its = _extract(d)
-        tried.append({"path": p, "n": len(its), "err": d.get("_http") or d.get("_err")})
-        if its:
-            return {"items": its, "via": p, "tried": tried}
-    return {"items": [], "tried": tried}
+    # Verified on the live server: GET /ranking-list -> data.rankingList = [{name, id, path}, ...] (TOP Movies, Cinema, Bollywood, South Indian, Hollywood, ...)
+    d = await call(f"{API}/ranking-list")
+    rl = (d.get("data") or {}).get("rankingList") or []
+    return {"rankings": [{"name": r.get("name"), "id": str(r.get("id")), "path": r.get("path")} for r in rl if isinstance(r, dict) and r.get("id")],
+            "_debug": d.get("_http") or d.get("_err")}
 
 
 @app.get("/midnight/status")
