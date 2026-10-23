@@ -73,6 +73,16 @@ async def call(url, payload=None, hdr=None, retry=True):
         except Exception as e:
             return {"_err": str(e)}
         _grab(r)
+        if r.status_code == 429:  # rate limit: wait and retry (up to 2 times)
+            for wait in (2.5, 5):
+                await asyncio.sleep(wait)
+                try:
+                    r = await (c.post(url, headers=h, content=json.dumps(payload)) if payload is not None else c.get(url, headers=h))
+                except Exception as e:
+                    return {"_err": str(e)}
+                if r.status_code != 429:
+                    break
+            _grab(r)
         if r.status_code in (401, 403) and retry:
             await ensure_token(True)
             return await call(url, payload, hdr, retry=False)
@@ -264,42 +274,19 @@ def _home_url(tab="", page=0):
 
 
 @app.get("/home")
-async def home(tab: str = "", page: int = 0, pages: int = 1):
+async def home(tab: str = "", page: int = 0):
     d = await call(_home_url(tab, page))
-    secs = _sections(d)
-    info = {"pages_ok": 1}
-    if pages > 1 and not page:
-        # MovieBox's home is an endless feed: page 2, 3, ... bring more rows. The very end of the feed is the
-        # 1000000-total junk list, so stop there (or as soon as a page adds nothing new).
-        pages = min(pages, 8)
-        extra = await asyncio.gather(*[call(_home_url(tab, p)) for p in range(1, pages)])
-        seen = {(s["section"], (s["items"][0]["slug"] if s.get("items") else None)) for s in secs}
-        for e in extra:
-            if not isinstance(e, dict) or e.get("_http") or e.get("_err") or _sentinel(e):
-                break
-            new = []
-            for s in _sections(e):
-                key = (s["section"], (s["items"][0]["slug"] if s.get("items") else None))
-                if s["section"] == "Banner" or key in seen:
-                    continue
-                seen.add(key)
-                new.append(s)
-            if not new:
-                break
-            secs += new
-            info["pages_ok"] += 1
-    return {"sections": secs, "tabs": _toptabs(d), "platforms": _platforms(d),
-            "_debug": d.get("_http") or d.get("_err"), "_paging": info}
+    return {"sections": _sections(d), "tabs": _toptabs(d), "platforms": _platforms(d), "_debug": d.get("_http") or d.get("_err")}
 
 
 @app.get("/more")
 async def more(id: str = "", url: str = "", title: str = "", page: int = 1, per: int = 24):
     """Full list for 'All >' / a sub-tab. MovieBox's own endpoints are tried one by one."""
     cands = []
+    if id:  # verified: ranking-list/content (id = genreTopId) pages correctly for every home row
+        cands.append(f"{API}/ranking-list/content?id={quote(id, safe='')}&page={page}&perPage={per}")
     if url.startswith("/"):
         cands.append(f"{API}{url}{'&' if '?' in url else '?'}page={page}&perPage={per}")
-    if id:
-        cands.append(f"{API}/ranking-list/content?id={quote(id, safe='')}&page={page}&perPage={per}")
     if re.search(r"trending", title, re.I):
         cands.append(f"{API}/subject/trending?page={max(page - 1, 0)}&perPage={per}")
     tried = []
@@ -326,24 +313,22 @@ async def filter_list(query: str, page: int = 1, per: int = 24):
     tab = prm.get("tabId", "")
     # The web API numbers its channels 1 = movies, 2 = TV, 4 = anime; the "Categories" widget uses the app's ids (2 / 5 / 8).
     chan = {"2": "1", "5": "2", "8": "4"}.get(tab, tab)
-    lang = ft.get("classify")
-    b1 = {**ft, **({"language": lang} if lang and lang != "All" else {}), "channelId": chan, "page": page, "perPage": per}
-    b2 = {**ft, "channelId": chan, "page": page, "perPage": per}
+    # Verified by testing the real API: /subject/filter takes channelId + genre/country/year/sort/classify.
+    # Language = classify ("Hindi dub" etc.); a separate `language` field is ignored.
+    # total=1000000 is MovieBox's normal total, NOT junk, so no sentinel filtering is done.
+    base = {"channelId": chan, "page": page, "perPage": per, "genre": "All", "country": "All", "year": "All", "sort": "ForYou", "classify": "All"}
+    b1 = {**base, **{k: v for k, v in ft.items() if v not in (None, "")}}
     body = {**ft, "tabId": tab, "channelId": tab, "page": page, "perPage": per}
     flat = urlencode(body)
-    cands = [("POST", f"{API}/subject/filter", b) for b in ((b1,) if b1 == b2 else (b1, b2))] + [
-        ("POST", f"{API}/subject/filter", body),
-        ("POST", f"{API}/home/movieFilter", body),
-        ("GET", f"{API}/subject/filter?{flat}", None),
-        ("GET", f"{API}/home/movieFilter?tabId={tab}&filterType={quote(json.dumps(ft, separators=(',', ':')), safe='')}&page={page}&perPage={per}", None),
-    ]
+    cands = [("POST", f"{API}/subject/filter", b1),
+             ("POST", f"{API}/subject/filter", {**b1, "country": "India"} if b1.get("country") == "All" else b1)]
+    if cands[0][2] == cands[1][2]:
+        cands = cands[:1]
     tried = []
     for method, u, payload in cands:
         d = await call(u, payload) if method == "POST" else await call(u)
         its = _extract(d)
-        sen = _sentinel(d)
-        if sen:
-            its = []
+        sen = False
         err = d.get("_http") or d.get("_err")
         row = {"m": method, "url": u[:140], "n": len(its), "err": err, "sentinel": sen,
                "chan": (payload or {}).get("channelId")}
@@ -374,8 +359,6 @@ pre{white-space:pre-wrap;word-break:break-all;background:#15151a;padding:10px;bo
 const $=i=>document.getElementById(i);
 const F=(ch,x)=>JSON.stringify(Object.assign({channelId:ch,page:1,perPage:12,genre:"All",country:"All",year:"All",sort:"ForYou",classify:"All"},x||{}));
 const PRE=[["Home","GET","/home?host=moviebox.ph",""],
-["Home p1","GET","/home?host=moviebox.ph&page=1",""],["Home p2","GET","/home?host=moviebox.ph&page=2",""],
-["Home p3","GET","/home?host=moviebox.ph&page=3",""],["Home p6","GET","/home?host=moviebox.ph&page=6",""],
 ["Movies ch1","POST","/subject/filter",F("1")],["TV ch2","POST","/subject/filter",F("2")],["Anime ch4","POST","/subject/filter",F("4")],
 ["Movies Action 2025","POST","/subject/filter",F("1",{genre:"Action",year:"2025"})],
 ["Movies Hindi (classify)","POST","/subject/filter",F("1",{classify:"Hindi dub"})],
@@ -516,6 +499,90 @@ async def raw(p: str):
     d = await call(API + p)
     s = json.dumps(d, ensure_ascii=False)
     return Response(s[:60000], media_type="application/json")
+
+
+# ===== Content-type endpoints (modelled on the real MovieBox site: TV show / Movie / Animation / Most Watched / ...) =====
+# Filter values below are copied from the real site's /web/film and /web/tv-series filter panels.
+TYPES = {"movie": "1", "tv": "2", "anime": "4"}  # web API channelId (verified earlier by the phone test)
+FILTERS = {
+    "genre": ["All", "Action", "Adventure", "Animation", "Biography", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "Film-Noir", "Game-Show", "History", "Horror", "Music", "Musical", "Mystery", "News", "Reality-TV", "Romance", "Sci-Fi", "Short", "Sport", "Talk-Show", "Thriller", "War", "Western", "Other"],
+    "country": ["All", "United States", "United Kingdom", "Korea", "Japan", "Bangladesh", "China", "Egypt", "France", "Germany", "India", "Indonesia", "Iraq", "Italy", "Ivory Coast", "Kenya", "Lebanon", "Mexico", "Morocco", "Nigeria", "Pakistan", "Philippines", "Russia", "Saudi Arabia", "South Africa", "Spain", "Syria", "Thailand", "Malaysia", "Turkey", "Other"],
+    "year": ["All", "2026", "2025", "2024", "2023", "2022", "2021", "2020", "2010s", "2000s", "1990s", "1980s", "Other"],
+    "language": ["All", "English dub", "French dub", "Hindi dub", "Bengali dub", "Urdu dub", "Punjabi dub", "Tamil dub", "Telugu dub", "Malayalam dub", "Kannada dub", "Arabic dub", "Arabic sub", "Tagalog dub", "Indonesian dub", "Russian dub", "Kurdish sub", "Spanish dub", "Spanish sub", "SpanishLatam dub"],
+    "sort": ["ForYou", "Hottest", "Latest", "Rating"],
+}
+
+
+@app.get("/meta/filters")
+async def meta_filters():
+    """All filter options + content types, so the frontend does not need to hard-code them."""
+    return {"types": list(TYPES), "filters": FILTERS,
+            "pages": {"movie": "/web/movie", "tv": "/web/tv-series", "anime": "/web/animated-series",
+                      "midnight": "/web/midnight (18+, disabled unless ENABLE_MIDNIGHT=1)", "most_watched": "/ranking-list"}}
+
+
+@app.get("/browse")
+async def browse(type: str = "movie", genre: str = "All", country: str = "All", year: str = "All",
+                 language: str = "All", sort: str = "ForYou", page: int = 1, per: int = 24):
+    """One clean endpoint for every video type: type = movie | tv | anime."""
+    ch = TYPES.get(type)
+    if not ch:
+        return JSONResponse({"error": "type must be one of " + ", ".join(TYPES)}, status_code=400)
+    body = {"channelId": ch, "page": page, "perPage": per, "genre": genre, "country": country,
+            "year": year, "sort": sort, "classify": language}
+    d = await call(f"{API}/subject/filter", body)
+    return {"type": type, "items": _extract(d), "page": page, "pager": (d.get("data") or {}).get("pager"),
+            "_debug": d.get("_http") or d.get("_err")}
+
+
+@app.get("/ranking")
+async def ranking(id: str = "", page: int = 1, per: int = 24):
+    """Most Watched (/ranking-list). With id = a ranking/genreTopId -> its list; without -> the list of rankings (paths tried in turn)."""
+    if id:
+        d = await call(f"{API}/ranking-list/content?id={quote(id, safe='')}&page={page}&perPage={per}")
+        return {"items": _extract(d), "page": page, "_debug": d.get("_http") or d.get("_err")}
+    tried = []
+    for p in ("/ranking-list", "/ranking-list/list", "/ranking-list/index"):
+        d = await call(API + p)
+        tried.append({"path": p, "err": d.get("_http") or d.get("_err"), "head": json.dumps(d, ensure_ascii=False)[:200]})
+        if d and not (d.get("_http") or d.get("_err")):
+            return {"data": d.get("data"), "via": p, "tried": tried}
+    return {"data": None, "tried": tried}
+
+
+@app.get("/extra/{name}")
+async def extra(name: str, page: int = 1):
+    """Other site sections (upcoming / live). The API paths are UNVERIFIED guesses; `tried` shows what answered."""
+    paths = {"upcoming": ("/upcoming", "/subject/upcoming", "/home/upcoming"),
+             "live": ("/live/list?tab=live", "/live/list", "/sport/live")}.get(name)
+    if not paths:
+        return JSONResponse({"error": "name must be upcoming or live"}, status_code=400)
+    tried = []
+    for p in paths:
+        u = f"{API}{p}{'&' if '?' in p else '?'}page={page}"
+        d = await call(u)
+        its = _extract(d)
+        tried.append({"path": p, "n": len(its), "err": d.get("_http") or d.get("_err")})
+        if its:
+            return {"items": its, "via": p, "tried": tried}
+    return {"items": [], "tried": tried}
+
+
+@app.get("/midnight/status")
+async def midnight_status():
+    return {"enabled": os.getenv("ENABLE_MIDNIGHT") == "1"}
+
+
+@app.get("/midnight")
+async def midnight(page: int = 0):
+    """MovieBox's 'Midnight' section is adult (18+) content. Off by default; the site owner must set ENABLE_MIDNIGHT=1."""
+    if os.getenv("ENABLE_MIDNIGHT") != "1":
+        return JSONResponse({"error": "Midnight (18+) is disabled. Set ENABLE_MIDNIGHT=1 to enable it."}, status_code=403)
+    h = await home()
+    tab = next((t for t in h["tabs"] if re.search(r"midnight", str(t.get("name")), re.I)), None)
+    if not tab:
+        return {"sections": [], "note": "no Midnight tab in the home response", "tabs": h["tabs"]}
+    return await home(tab=tab["id"], page=page)
 
 
 @app.get("/search")

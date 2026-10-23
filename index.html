@@ -307,7 +307,7 @@ html.tv .modal :focus,html.big .modal :focus-visible{outline:3px solid var(--acc
 const BASE="",LITE=document.documentElement.classList.contains("lite");
 const $app=document.getElementById("app"),$nav=document.getElementById("nav");
 const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
-let ME=null,PROG=[],SEENSET=new Set(),favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET={},HC={},TAB="",TABS=[],SEC={},CAT="all";
+let MID=false,ME=null,PROG=[],SEENSET=new Set(),favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET={},HC={},TAB="",TABS=[],SEC={},CAT="all";
 function h(t,a,...k){const el=document.createElement(t);for(const[n,v]of Object.entries(a||{})){if(n==="class")el.className=v;else if(n.startsWith("on"))el[n]=v;else if(v===true)el.setAttribute(n,"");else if(v!==false&&v!=null)el.setAttribute(n,v)}for(const c of k.flat())if(c!=null)el.append(c.nodeType?c:document.createTextNode(c));return el}
 const api=async(p,body)=>{const o={headers:{}},t=store.get("jf_token");if(t)o.headers.Authorization="Bearer "+t;
   if(body!==undefined){o.method="POST";o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body)}
@@ -321,10 +321,10 @@ let txT=0;function setTheme(t,anim){const r=document.documentElement;if(anim&&!L
 setTheme(store.get("theme")||"dark");
 document.getElementById("theme").onclick=()=>setTheme(document.documentElement.dataset.theme==="dark"?"light":"dark",true);
 
-const IC={home:'<path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',acct:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.5 4-6 8-6s7 1.5 8 6"/>',list:'<path d="M12 21s-7-4.6-9.3-9.2C1.2 8.6 3 5 6.4 5c2 0 3.6 1.2 5.6 3.4C14 6.2 15.6 5 17.6 5 21 5 22.8 8.6 21.3 11.8 19 16.4 12 21 12 21z"/>'};
+const IC={mid:'<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',disc:'<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>',home:'<path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',acct:'<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.5 4-6 8-6s7 1.5 8 6"/>',list:'<path d="M12 21s-7-4.6-9.3-9.2C1.2 8.6 3 5 6.4 5c2 0 3.6 1.2 5.6 3.4C14 6.2 15.6 5 17.6 5 21 5 22.8 8.6 21.3 11.8 19 16.4 12 21 12 21z"/>'};
 function drawNav(){const cur=location.hash.replace(/^#\/?/,"").split("/")[0];
-  const it=[["home","Home",()=>go("#/")],["list","My List",()=>go("#/list")],["acct",ME?ME.username:"Account",()=>ME?accountModal():authModal()]];
-  $nav.replaceChildren(...it.map(([k,l,f])=>{const b=h("button",{class:(k==="home"&&!["list","show","watch"].includes(cur))||k===cur?"on":"",onclick:f},l);b.insertAdjacentHTML("afterbegin",'<svg viewBox="0 0 24 24">'+IC[k]+"</svg>");return b}))}
+  const it=[["home","Home",()=>go("#/")],["disc","Discover",()=>go("#/discover")],...(MID?[["midnight","Midnight",()=>go("#/midnight")]]:[]),["list","My List",()=>go("#/list")],["acct",ME?ME.username:"Account",()=>ME?accountModal():authModal()]];
+  $nav.replaceChildren(...it.map(([k,l,f])=>{const b=h("button",{class:(k==="home"&&!["list","show","watch","discover","midnight"].includes(cur))||k===cur?"on":"",onclick:f},l);b.insertAdjacentHTML("afterbegin",'<svg viewBox="0 0 24 24">'+IC[k]+"</svg>");return b}))}
 
 /* ---------- cards ---------- */
 const img=(src,cls)=>{const i=h("img",{class:cls||"",src:src||"",referrerpolicy:"no-referrer",loading:"lazy",decoding:"async",alt:"",onerror:e=>e.target.style.display="none"});i.onload=()=>i.classList.add("ld");if(i.complete&&i.naturalWidth)i.classList.add("ld");return i};
@@ -344,14 +344,15 @@ const moreOf=s=>{const m=s.more||{};return{id:String(m.genreTopId||m.rankingId||
 const hasMore=s=>{const m=s.more||{};return!!(m.genreTopId||m.rankingId||m.rankId||m.id||m.opId||m.url||m.jumpUrl||m.path||m.link)||s.items.length>=9};
 const SECT={};
 function browsePage(pre){
-  const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All"};if(pre==="tv")st.tab="5";if(pre==="anime")st.tab="8";
+  const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All",sort:"ForYou"};if(pre==="tv")st.tab="5";if(pre==="anime")st.tab="8";
   const pairs=a=>a.map(v=>[v,v]);
   const groups=[
     ["Type","tab",[["Movies","2"],["Dramas & series","5"],["Anime","8"]]],
-    ["Language","classify",["All","Hindi dub","Punjabi dub","Bengali dub","Tamil dub","Telugu dub","Malayalam dub","Kannada dub","Marathi dub","Urdu dub","English dub"].map(v=>[v.replace(/ dub$/,""),v])],
-    ["Genre","genre",pairs(["All","Action","Adventure","Animation","Comedy","Crime","Documentary","Drama","Family","Fantasy","Horror","Mystery","Romance","Sci-Fi","Thriller","War"])],
-    ["Country","country",pairs(["All","India","United States","South Korea","Japan","China","Thailand","Turkey","United Kingdom","Pakistan","Philippines","Indonesia"])],
-    ["Year","year",pairs(["All","2026","2025","2024","2023","2022","2021","2020","2019","2018"])]];
+    ["Language","classify",["All","English dub","French dub","Hindi dub","Bengali dub","Urdu dub","Punjabi dub","Tamil dub","Telugu dub","Malayalam dub","Kannada dub","Arabic dub","Arabic sub","Tagalog dub","Indonesian dub","Russian dub","Kurdish sub","Spanish dub","Spanish sub","SpanishLatam dub"].map(v=>[/^(Arabic|Spanish)/.test(v)?v:v.replace(/ dub$/,""),v])],
+    ["Genre","genre",pairs(["All","Action","Adventure","Animation","Biography","Comedy","Crime","Documentary","Drama","Family","Fantasy","Film-Noir","Game-Show","History","Horror","Music","Musical","Mystery","News","Reality-TV","Romance","Sci-Fi","Short","Sport","Talk-Show","Thriller","War","Western","Other"])],
+    ["Country","country",pairs(["All","India","United States","United Kingdom","Korea","Japan","China","Bangladesh","Egypt","France","Germany","Indonesia","Iraq","Italy","Ivory Coast","Kenya","Lebanon","Mexico","Morocco","Nigeria","Pakistan","Philippines","Russia","Saudi Arabia","South Africa","Spain","Syria","Thailand","Malaysia","Turkey","Other"])],
+    ["Year","year",pairs(["All","2026","2025","2024","2023","2022","2021","2020","2010s","2000s","1990s","1980s","Other"])],
+    ["Sort","sort",[["For you","ForYou"],["Hottest","Hottest"],["Latest","Latest"],["Rating","Rating"],["Year","Year"]]]];
   const box=h("div",{});
   const paint=()=>box.replaceChildren(...groups.flatMap(([lbl,key,opts])=>[h("div",{class:"lbl"},lbl.toUpperCase()),
     h("div",{class:"cwrap"},opts.map(([l,v])=>h("button",{class:"cat"+(st[key]===v?" on":""),onclick:()=>{st[key]=v;paint()}},l)))]));
@@ -359,7 +360,7 @@ function browsePage(pre){
   const show=h("button",{class:"pri",style:"width:100%;margin-top:22px",onclick:()=>{
     const tl=st.tab==="5"?"Dramas & series":st.tab==="8"?"Anime":"Movies";
     const title=[tl,st.classify!=="All"?st.classify.replace(/ dub$/,""):"",st.genre!=="All"?st.genre:"",st.country!=="All"?st.country:"",st.year!=="All"?st.year:""].filter(Boolean).join(" · ");
-    const query="type=/home/movieFilter&tabId="+st.tab+"&filterType="+JSON.stringify({classify:st.classify,country:st.country,genre:st.genre,sort:"ForYou",year:st.year});
+    const query="type=/home/movieFilter&tabId="+st.tab+"&filterType="+JSON.stringify({classify:st.classify,country:st.country,genre:st.genre,sort:st.sort,year:st.year});
     go("#/all/"+encodeURIComponent(JSON.stringify({title,query})))}},"Show results");
   mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),h("h2",{class:"sec"},"Browse categories"),box,show)}
 function filterBlock(s){const tl=s.tabs.filter(t=>t.query);
@@ -374,6 +375,12 @@ function secBlock(s){SEC[s.section]=s.items;SECT[s.section]=s.tabs||[];
       box.replaceChildren(its&&its.length?railBox(its.slice(0,20)):h("div",{class:"state"},"Nothing found."))};
     s.tabs.forEach((t,k)=>strip.append(h("button",{class:"cat"+(k===0?" on":""),onclick:()=>pick(k)},t.name)));out.push(strip)}
   out.push(box);return out}
+
+/* filter queries -> /browse (clean endpoint); anything unknown falls back to /filter */
+const BTYPE={"2":"movie","5":"tv","8":"anime"};
+function browseUrl(q,page){try{const u=new URLSearchParams(q),t=BTYPE[u.get("tabId")],ft=JSON.parse(u.get("filterType")||"{}");
+    if(t){const p=new URLSearchParams({type:t,genre:ft.genre||"All",country:ft.country||"All",year:ft.year||"All",language:ft.classify||"All",sort:ft.sort||"ForYou",page});return"/browse?"+p}}catch(e){}
+  return"/filter?query="+encodeURIComponent(q)+"&page="+page}
 async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
   let page=1,busy=false,done=false,cur={id:m.id||"",url:m.url||"",title:m.title||"",query:m.query||""},gen=0;
   const tabs=SECT[m.title]||[];
@@ -381,7 +388,7 @@ async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
   const strip=tabs.length?h("div",{class:"cats sub"}):null;
   mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),h("h2",{class:"sec"},m.title||"All"),strip,grid,st,btn);
   const load=async()=>{if(busy||done)return;busy=true;btn.style.display="none";const g=gen;
-    try{const j=await api(cur.query?"/filter?query="+encodeURIComponent(cur.query)+"&page="+page:"/more?id="+encodeURIComponent(cur.id)+"&url="+encodeURIComponent(cur.url)+"&title="+encodeURIComponent(cur.title)+"&page="+page),it=j.items||[];
+    try{const j=await api(cur.query?browseUrl(cur.query,page):"/more?id="+encodeURIComponent(cur.id)+"&url="+encodeURIComponent(cur.url)+"&title="+encodeURIComponent(cur.title)+"&page="+page),it=j.items||[];
       if(g!==gen){busy=false;return}
       if(it.length){it.forEach(i=>grid.append(card(i)));page++;st.textContent="";btn.style.display="block"}
       else{done=true;let fb=cur.items||SEC[cur.title],note="";
@@ -410,7 +417,7 @@ const kindOf=(i,sec)=>{const g=String(i.genre||"");
   return"other"};
 const catBar=()=>h("div",{class:"cats toptabs"},CATS.map(([k,l])=>h("button",{class:"cat"+(CAT===k?" on":""),onclick:()=>{CAT=k;home()}},l)));
 async function pool(){if(POOL.length)return POOL;
-  const R=HC["#all"]||(HC["#all"]=await api("/home?pages=6")),seen=new Set();
+  const R=HC[""]||(HC[""]=await api("/home")),seen=new Set();
   (R.sections||[]).forEach(s=>(s.items||[]).forEach(i=>{if(i.slug&&!seen.has(i.slug)){seen.add(i.slug);POOL.push(i)}}));return POOL}
 const applyFilter=(P,q)=>{let tab="2",ft={};
   try{const u=new URLSearchParams(q);tab=u.get("tabId")||"2";ft=JSON.parse(u.get("filterType")||"{}")}catch(e){}
@@ -426,7 +433,7 @@ const applyFilter=(P,q)=>{let tab="2",ft={};
 /* ---------- home ---------- */
 async function home(){
   $app.replaceChildren(h("div",{class:"hero sk"}),...skRail(),...skRail());
-  let R;try{R=HC[TAB]||(HC[TAB]=await api("/home?pages=6"+(TAB?"&tab="+encodeURIComponent(TAB):"")))}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to connect to the server. Please refresh the page."));return}
+  let R;try{R=HC[TAB]||(HC[TAB]=await api("/home"+(TAB?"?tab="+encodeURIComponent(TAB):"")))}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to connect to the server. Please refresh the page."));return}
   if(!TABS.length)TABS=R.tabs||[];const HOME=R.sections||[];
   const ban=(HOME.find(s=>s.section==="Banner")||{items:[]}).items.slice(0,5);
   const rest=HOME.filter(s=>s.section!=="Banner"&&((s.items&&s.items.length)||(s.kind==="filter"&&s.tabs&&s.tabs.length))).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));
@@ -501,6 +508,7 @@ async function loadMe(){if(!store.get("jf_token"))return;
     favs=[...favs.filter(f=>f.subject_id&&!have.has(String(f.subject_id))),...srv];store.set("mb_favs",JSON.stringify(favs))}
   catch(e){if(e.status===401)store.set("jf_token","");ME=null;PROG=[]}}
 let meReady=loadMe().then(()=>drawNav());
+api("/midnight/status").then(j=>{if(j&&j.enabled){MID=true;drawNav()}}).catch(()=>{});
 function authModal(){let mode="login";
   const u=h("input",{class:"in",placeholder:"Username",autocomplete:"username"}),p=h("input",{class:"in",type:"password",placeholder:"Password",autocomplete:"current-password"}),err=h("div",{class:"err"});
   const title=h("b",{style:"font-size:18px"},"Sign in"),sw=h("button",{class:"back"},"New here? Create an account"),ok=h("button",{class:"pri"},"Sign in");
@@ -639,8 +647,39 @@ async function watch(id,slug,se,ep){
   play(0)}
 
 /* ---------- router ---------- */
+
+/* ---------- Discover: rankings (home rows), Upcoming, Live ---------- */
+async function discoverPage(){
+  const chips=h("div",{class:"cats sub"}),grid=h("div",{class:"grid"}),st=h("div",{class:"state"},"Loading…"),btn=h("button",{class:"btn",style:"margin:16px auto;display:none"},"Load more");
+  mount(h("h2",{class:"sec"},"Discover"),chips,grid,st,btn);
+  let R;try{R=HC[""]||(HC[""]=await api("/home"))}catch(e){st.textContent="Unable to connect to the server.";return}
+  const gid=s=>{const m=s.more||{};return String(m.genreTopId||m.rankingId||m.rankId||m.id||m.opId||"")};
+  const src=[...(R.sections||[]).filter(s=>s.section!=="Banner"&&gid(s)).map(s=>({name:s.section,url:"/ranking?id="+encodeURIComponent(gid(s))})),
+    {name:"Upcoming",url:"/extra/upcoming?x=1"},{name:"Live",url:"/extra/live?x=1"}];
+  let cur=0,page=1,busy=false,done=false,gen=0;
+  const load=async()=>{if(busy||done)return;busy=true;btn.style.display="none";const g=gen,u=src[cur].url+(src[cur].url.includes("?")?"&":"?")+"page="+page;
+    try{const j=await api(u),it=j.items||[];if(g!==gen){busy=false;return}
+      if(it.length){it.forEach(i=>grid.append(card(i)));page++;st.textContent="";btn.style.display="block"}
+      else{done=true;st.textContent=grid.children.length?"That's everything.":"Nothing available here right now."}}
+    catch(e){st.textContent="Failed to load."}busy=false};
+  const pick=k=>{cur=k;gen++;page=1;busy=false;done=false;grid.replaceChildren();st.textContent="Loading…";[...chips.children].forEach((b,j)=>b.classList.toggle("on",j===k));load()};
+  src.forEach((t,k)=>chips.append(h("button",{class:"cat"+(k===0?" on":""),onclick:()=>pick(k)},t.name)));
+  btn.onclick=load;load()}
+
+/* ---------- Midnight (18+): only shown when the server has ENABLE_MIDNIGHT=1; asks the viewer to confirm they are 18+ ---------- */
+async function midnightPage(){
+  if(!MID){go("#/");return}
+  if(store.get("jf_18")!=="1"){
+    mount(h("h2",{class:"sec"},"Midnight (18+)"),h("div",{class:"state"},"This section contains adult content. You must be 18 or older to continue."),
+      h("div",{style:"display:flex;gap:10px;justify-content:center;margin-top:12px"},
+        h("button",{class:"pri",onclick:()=>{store.set("jf_18","1");midnightPage()}},"I am 18 or older"),
+        h("button",{class:"btn",onclick:()=>go("#/")},"Go back")));return}
+  mount(h("h2",{class:"sec"},"Midnight (18+)"),h("div",{class:"state"},"Loading…"));
+  let R;try{R=await api("/midnight")}catch(e){mount(h("h2",{class:"sec"},"Midnight (18+)"),h("div",{class:"state"},"Midnight is not available right now."));return}
+  const secs=(R.sections||[]).filter(s=>s.section!=="Banner"&&s.items&&s.items.length);
+  mount(h("h2",{class:"sec"},"Midnight (18+)"),secs.length?secs.map(s=>secBlock(s)).flat():h("div",{class:"state"},"Nothing found."))}
 function route(){kill();$app.classList.remove("w");const p=location.hash.replace(/^#\/?/,"").split("/").filter(Boolean).map(decodeURIComponent);drawNav();scrollTo({top:0,left:0,behavior:"instant"});
-  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
+  if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="discover")return discoverPage();if(p[0]==="midnight")return midnightPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
 addEventListener("hashchange",route);route();
 </script>
 </body>
