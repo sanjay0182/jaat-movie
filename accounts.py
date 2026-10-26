@@ -10,6 +10,11 @@ has no local catalog.
 import hashlib, hmac, json, os, re, secrets, sqlite3, threading, time
 import urllib.request
 
+# Cloudflare (workers.dev) blocks the default "Python-urllib" User-Agent with 403 -> send a normal one
+_HDR = {"Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Accept": "application/json"}
+
 SQL_URL = os.environ.get("SQL_URL", "").rstrip("/")
 if SQL_URL and not SQL_URL.endswith("/sql"):
     SQL_URL += "/sql"
@@ -47,7 +52,7 @@ def q(sql, params=()):
     global _local
     if SQL_URL:
         req = urllib.request.Request(SQL_URL, json.dumps({"sql": sql, "params": list(params)}).encode(),
-                                     {"Content-Type": "application/json"})
+                                     _HDR)
         with urllib.request.urlopen(req, timeout=15) as r:
             return _rows(json.loads(r.read() or b"{}"))
     with _lock:
@@ -61,7 +66,7 @@ def q(sql, params=()):
 def init():
     if SQL_URL:
         body = json.dumps({"script": ";\n".join(SCHEMA)}).encode()
-        urllib.request.urlopen(urllib.request.Request(SQL_URL, body, {"Content-Type": "application/json"}), timeout=15).read()
+        urllib.request.urlopen(urllib.request.Request(SQL_URL, body, _HDR), timeout=15).read()
     else:
         for s in SCHEMA:
             q(s)
