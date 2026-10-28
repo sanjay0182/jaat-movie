@@ -757,12 +757,27 @@ async def detail(request: Request, slug: str):
     return d
 
 
-def _px(u, c, sess=None):
-    return protect.link(u, c, sess)
+def _pick_worker(c):
+    """VIDEO_WORKER can hold several Worker URLs, comma separated (e.g. one per Cloudflare account).
+    A viewer always gets the same one (hash of device id / IP), so the load is split evenly."""
+    import hashlib
+    ws = [w.strip().rstrip("/") for w in os.environ.get("VIDEO_WORKER", "").split(",") if w.strip()]
+    if not ws:
+        return ""
+    k = (c.get("dev") or c.get("ip") or "") if c else ""
+    return ws[int(hashlib.md5(k.encode("utf-8", "ignore")).hexdigest(), 16) % len(ws)]
+
+
+def _px(u, c, sess=None, bind=False):
+    """Signed video link.  VIDEO_WORKER=https://xxx.workers.dev -> the Worker carries the bytes (not this server).
+    bind=True also ties the link to the browser (X-Device) - only for hls.js, a plain <video> cannot send that header."""
+    l = protect.link(u, c, sess, bind_dev=bind)
+    w = _pick_worker(c)
+    return (w + l + "&r=" + quote(_ref["v"], safe="")) if w else l
 
 
 @app.get("/api/stream/{subject_id}")
-async def stream(request: Request, subject_id: str, detail_path: str, se: int = 0, ep: int = 0):
+async def stream(request: Request, subject_id: str, detail_path: str, se: int = 0, ep: int = 0, hj: int = 0):
     c = protect.ctx(request)
     user = await _me(request)
     refuse = protect.stream_gate(request, user, subject_id, detail_path, se, ep)
@@ -807,11 +822,11 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
     for x in pd.get("hls") or []:  # hls items can be dicts or strings
         u = x.get("url") if isinstance(x, dict) else x
         if u:
-            src.append({"kind": "hls", "label": "Auto (HLS)", "res": 9999, "url": _px(u, c, sess)})
+            src.append({"kind": "hls", "label": "Auto (HLS)", "res": 9999, "url": _px(u, c, sess, bind=bool(hj))})
     for s in pd.get("streams") or []:
         if s.get("url"):
             res = int(s.get("resolutions") or 0)
-            src.append({"kind": "hls" if ".m3u8" in s["url"] else "mp4", "label": f"{res}p", "res": res, "url": _px(s["url"], c, sess)})
+            src.append({"kind": "hls" if ".m3u8" in s["url"] else "mp4", "label": f"{res}p", "res": res, "url": _px(s["url"], c, sess, bind=bool(hj) and ".m3u8" in s["url"])})
     src.sort(key=lambda x: -x["res"])
     st = (pd.get("streams") or pd.get("dash") or [None])[0] or {}
     cap = {"id": st.get("id"), "fmt": st.get("format") or "MP4"}

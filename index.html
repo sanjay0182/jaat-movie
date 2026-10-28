@@ -1104,7 +1104,7 @@ function solveCaptcha(){   /* -> Promise<true when passed>. One at a time: every
 addEventListener("hashchange",()=>{if(CAPP&&window.CapGame){CapGame.closeAll();CAPP=null}});   /* left the page: the check goes away too */
 /* the video link. If the server wants the title page opened first, open it quietly and ask again.
    If it wants a captcha: solve it, then ask again (a stale pass token is dropped first). */
-async function streamApi(id,slug,se,ep){const u="/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+se+"&ep="+ep;
+async function streamApi(id,slug,se,ep){const u="/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+se+"&ep="+ep+(window.Hls&&Hls.isSupported()?"&hj=1":"");
   for(let tries=0;;tries++){
     try{return await api(u)}
     catch(e){
@@ -1259,21 +1259,25 @@ const applyFilter=(P,q)=>{let tab="2",ft={};
     return true})};
 
 /* ---------- home ---------- */
+const LC={};const T=ms=>new Promise(r=>setTimeout(r,ms));
+const probe=u=>new Promise(res=>{if(!u||LC[u]!==undefined)return res();const im=new Image();im.referrerPolicy="no-referrer";
+  im.onload=()=>{LC[u]=im.naturalWidth>im.naturalHeight*1.2;res()};im.onerror=()=>{LC[u]=false;res()};im.src=u});
 async function home(){
   $app.replaceChildren(h("div",{class:"hero sk"}),...skRail(),...skRail());
   const TK=isTab(CAT);let R;try{R=TK?(HC["tab:"+CAT]||(HC["tab:"+CAT]=await api("/tab/"+CAT))):(HC[TAB]||(HC[TAB]=await api("/home"+(TAB?"?tab="+encodeURIComponent(TAB):""))))}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to connect to the server. Please refresh the page."));return}
   if(!TABS.length&&!TK)TABS=R.tabs||[];const HOME=R.sections||[];
   const ban=(HOME.find(s=>s.section==="Banner")||{items:[]}).items.slice(0,5);
   const rest=HOME.filter(s=>s.section!=="Banner"&&!/free\s*now/i.test(s.section||"")&&(s.kind!=="filter"&&s.items&&s.items.length)).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));
-  await meReady;
+  await Promise.all([Promise.race([meReady,T(450)]),ban.length?Promise.race([probe(ban[0].poster_url),T(1200)]):0]);
   const frag=[];
   const cont=ME&&!TAB&&CAT==="all"?PROG.filter(p=>p.slug&&p.sid):[];
+  const meLate=!ME&&!TAB&&CAT==="all";
   if(ban.length&&(CAT==="all"||TK)){const box=h("div",{class:"hero"}),N=ban.length,D=LITE?10000:6000;let i=0,hT=0,sx=0,sy=0;
     const to=k=>{clearTimeout(hT);i=(k+N)%N;draw()};
     const tick=()=>{if(!box.isConnected)return;if(document.hidden){hT=setTimeout(tick,D);return}to(i+1)};
-    function draw(){const b=ban[i],cur=i;box.className="hero";
+    function draw(){const b=ban[i],cur=i;box.className="hero"+(LC[b.poster_url]?" land":"");
       const art=h("img",{class:"art",src:b.poster_url||"",referrerpolicy:"no-referrer",alt:""});
-      const mk=()=>{if(cur!==i||!art.naturalWidth)return;if(art.naturalWidth>art.naturalHeight*1.2)box.classList.add("land")};
+      const mk=()=>{if(cur!==i||!art.naturalWidth)return;const w=art.naturalWidth>art.naturalHeight*1.2;LC[b.poster_url]=w;if(w)box.classList.add("land")};
       art.onload=mk;art.onerror=()=>art.remove();if(art.complete&&art.naturalWidth)mk();
       const gl=String(b.genre||"").split(",").map(x=>x.trim()).filter(Boolean).slice(0,6),kl=typeof kindOf==="function"?(KINDL[kindOf(b,"")]||"Movie"):"Movie";
       const lg=tagsOf(b.name)[0]||"",info=h("div",{class:"hinfo"});
@@ -1290,15 +1294,16 @@ async function home(){
     /* swipe left / right to change slides */
     box.addEventListener("touchstart",e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
     box.addEventListener("touchend",e=>{if(N<2)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.5)to(i+(dx<0?1:-1))},{passive:true});
-    ban.forEach(b=>{if(b.poster_url){const im=new Image();im.referrerPolicy="no-referrer";im.src=b.poster_url}});
+    ban.forEach(b=>probe(b.poster_url));
     draw();frag.push(box)}
-  frag.push(catBar());
+  const catEl=catBar();frag.push(catEl);
   const cutAt=frag.length;
-  if(cont.length){const items=cont.slice(0,15);
+  const mkCont=list=>{const items=list.slice(0,15);
     const rw=railBox(items.map(p=>({slug:p.slug,subject_id:p.sid,name:p.name+(p.season||p.episode?" · S"+p.season+" E"+p.episode:""),poster_url:p.poster_url})));
     [...rw.querySelectorAll(".card")].forEach((c,k)=>{const p=items[k];c.onclick=()=>go("#/watch/"+p.sid+"/"+p.slug+"/"+p.season+"/"+p.episode);
       if(p.dur)c.querySelector(".pw").append(h("div",{class:"prog"},h("i",{style:"width:"+Math.min(100,p.pos/p.dur*100)+"%"})))});
-    frag.splice(cutAt,0,h("h2",{class:"sec"},"Continue watching"),rw)}
+    return[h("h2",{class:"sec"},"Continue watching"),rw]};
+  if(cont.length)frag.splice(cutAt,0,...mkCont(cont));
   if(CAT==="all"||TK){rest.forEach(s=>frag.push(...(s.kind==="filter"?filterBlock(s):secBlock(s))))}
   else{const seen=new Set();let n=0;const lb=(CATS.find(c=>c[0]===CAT)||[])[1]||"";
     rest.forEach(s=>{if(s.kind==="filter")return;
@@ -1308,7 +1313,8 @@ async function home(){
     if(!n)frag.push(h("div",{class:"state"},"Nothing in this category on the home feed right now."));
     frag.push(h("button",{class:"pri",style:"width:100%;margin:18px 0",onclick:()=>go("#/browse/"+CAT)},"Browse all "+lb+" ›"))}
   if(!frag.length)frag.push(h("div",{class:"state"},"Nothing found."));
-  $app.replaceChildren(...frag)}
+  $app.replaceChildren(...frag);
+  if(meLate)meReady.then(()=>{if(!ME||!catEl.isConnected)return;const c=PROG.filter(p=>p.slug&&p.sid);if(c.length)catEl.after(...mkCont(c))})}
 
 /* ---------- search (same layout as the anime app: recent searches, trending now, highlighted results) ---------- */
 const RKEY="recent_q";
@@ -1627,7 +1633,7 @@ async function watch(id,slug,se,ep){
     video.onloadedmetadata=()=>{if(resume>10){video.currentTime=resume;resume=0}};
     video.onerror=()=>{if(!hls&&!fb()){const ve=video.error;bad("Video error "+(ve?ve.code+(ve.message?" ("+ve.message+")":""):"?")+" · "+(x.kind||"")+" "+(x.label||""))}};
     if(x.kind==="hls"&&window.Hls&&Hls.isSupported()){let nt=0,mt=0;
-      hls=new Hls({maxBufferLength:30,capLevelToPlayerSize:true,startFragPrefetch:true,manifestLoadingMaxRetry:3,fragLoadingMaxRetry:4});
+      hls=new Hls({xhrSetup:x=>{try{x.setRequestHeader("X-Device",DID)}catch(e){}},maxBufferLength:30,capLevelToPlayerSize:true,startFragPrefetch:true,manifestLoadingMaxRetry:3,fragLoadingMaxRetry:4});
       hls.loadSource(x.url);hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(hide)});
       hls.on(Hls.Events.FRAG_BUFFERED,()=>{nt=0});
@@ -1719,7 +1725,7 @@ async function reels(slug,id){
   async function ensure(k){const S=slides[k];if(!S||S.ready||S.loading)return;S.loading=true;S.spin.classList.add("on");
     try{const data=await streamApi(S.item.subject_id,S.item.slug,0,0);if(!alive)return;
       const src=data.sources||[];if(!src.length)throw new Error("none");const x=src.find(y=>y.kind!=="hls")||src[0];
-      if(x.kind==="hls"&&window.Hls&&Hls.isSupported()){S.hls=new Hls({maxBufferLength:12,capLevelToPlayerSize:true,startFragPrefetch:true});S.hls.loadSource(x.url);S.hls.attachMedia(S.v);
+      if(x.kind==="hls"&&window.Hls&&Hls.isSupported()){S.hls=new Hls({xhrSetup:x=>{try{x.setRequestHeader("X-Device",DID)}catch(e){}},maxBufferLength:12,capLevelToPlayerSize:true,startFragPrefetch:true});S.hls.loadSource(x.url);S.hls.attachMedia(S.v);
         S.hls.on(Hls.Events.ERROR,(_e,er)=>{if(er.fatal){if(er.type===Hls.ErrorTypes.NETWORK_ERROR)S.hls.startLoad();else if(er.type===Hls.ErrorTypes.MEDIA_ERROR)S.hls.recoverMediaError();else{S.err.textContent="Could not play this video";S.spin.classList.remove("on")}}})}
       else S.v.src=x.url;
       S.v.preload="auto";S.ready=true;if(S===slides[active])go2play(S)}
