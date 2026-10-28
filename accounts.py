@@ -31,6 +31,7 @@ SCHEMA = [
     "CREATE TABLE IF NOT EXISTS seen(user_id INTEGER, sid TEXT, eps TEXT, PRIMARY KEY(user_id, sid))",
     "CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT)",
     "CREATE TABLE IF NOT EXISTS tmdb(slug TEXT PRIMARY KEY, v TEXT)",  # reserved for TMDB posters
+    "CREATE TABLE IF NOT EXISTS signups(ipk TEXT, ts REAL)",  # one row per account made, per IP (survives restarts)
 ]
 
 
@@ -92,7 +93,20 @@ def _session(uid):
     return tok
 
 
-def signup(username, password):
+SIGNUP_MAX = int(os.environ.get("SIGNUP_MAX", "3") or 3)          # accounts per IP ...
+SIGNUP_HOURS = float(os.environ.get("SIGNUP_HOURS", "24") or 24)  # ... in this many hours
+
+
+def signup_count(ipk):
+    """How many accounts this IP made lately (from the DB). Never raises (0 on error)."""
+    try:
+        r = q("SELECT COUNT(*) FROM signups WHERE ipk=? AND ts>?", (ipk, time.time() - SIGNUP_HOURS * 3600))
+        return int(r[0][0]) if r else 0
+    except Exception:
+        return 0
+
+
+def signup(username, password, ipk=""):
     if not re.fullmatch(r"[A-Za-z0-9_]{3,20}", username or ""):
         return None, "Username must be 3-20 letters, numbers or underscores."
     if len(password or "") < 6:
@@ -106,6 +120,12 @@ def signup(username, password):
     except Exception:
         return None, "That username is already taken."
     rows = q("SELECT id FROM users WHERE username=?", (username,))
+    if ipk:
+        try:
+            q("INSERT INTO signups(ipk,ts) VALUES(?,?)", (ipk, time.time()))
+            q("DELETE FROM signups WHERE ts<?", (time.time() - 30 * 86400,))
+        except Exception:
+            pass
     return _session(rows[0][0]), None
 
 

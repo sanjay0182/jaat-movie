@@ -1072,14 +1072,40 @@ body.reelson{overflow:hidden;overscroll-behavior:none}
 "use strict";
 const BASE="",LITE=document.documentElement.classList.contains("lite");
 const $app=document.getElementById("app"),$nav=document.getElementById("nav");
-const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
+/* device id: a random id this browser keeps; the server counts rates / guest videos per device as well as per IP */
+const DID=(()=>{let d=store.get("jf_did");if(!d||!/^[A-Za-z0-9_-]{8,40}$/.test(d)){const a="abcdefghijklmnopqrstuvwxyz0123456789";d="";try{const u=new Uint8Array(20);crypto.getRandomValues(u);for(const x of u)d+=a[x%36]}catch(e){for(let i=0;i<20;i++)d+=a[Math.random()*36|0]}store.set("jf_did",d)}return d})();
 let MID=false,ME=null,PROG=[],SEENSET=new Set(),favs=JSON.parse(store.get("mb_favs")||"[]"),HOME=null,hls=null,timers=[],DET={},HC={},TAB="",TABS=[],SEC={},CAT="all";
 function h(t,a,...k){const el=document.createElement(t);for(const[n,v]of Object.entries(a||{})){if(n==="class")el.className=v;else if(n.startsWith("on"))el[n]=v;else if(v===true)el.setAttribute(n,"");else if(v!==false&&v!=null)el.setAttribute(n,v)}for(const c of k.flat())if(c!=null)el.append(c.nodeType?c:document.createTextNode(c));return el}
-const api=async(p,body)=>{const o={headers:{}},t=store.get("jf_token");if(t)o.headers.Authorization="Bearer "+t;
+const api=async(p,body)=>{const o={headers:{"X-Device":DID}},t=store.get("jf_token");if(t)o.headers.Authorization="Bearer "+t;
+  const cp=capToken();if(cp)o.headers["X-Captcha"]=cp;
   if(body!==undefined){o.method="POST";o.headers["Content-Type"]="application/json";o.body=JSON.stringify(body)}
-  const r=await fetch(BASE+p,o);let j=null;
-  if(!r.ok){let m="";try{m=(await r.json()).error}catch(e){}const e=new Error(m||r.status);e.status=r.status;throw e}
+  const r=await fetch(BASE+p,o);
+  if(!r.ok){let j={};try{j=await r.json()}catch(e){}const e=new Error(j.error||r.status);e.status=r.status;e.captcha=j.captcha;e.login=j.login;e.open=j.open;e.busy=j.busy;throw e}
   return r.json()};
+/* captcha: the server asks only when something looks unusual (403 {captcha:true}): many different videos fast, many wrong passwords,
+   and always before an account is made. /captcha.js is loaded only then. A pass token (tied to the IP) rides along in header X-Captcha. */
+let CAPT="",CAPX=0,CAPP=null;
+try{const c=JSON.parse(store.get("jf_cap")||"null");if(c&&c.t&&c.x>Date.now()){CAPT=c.t;CAPX=c.x}}catch(e){}
+function capToken(){if(CAPT&&CAPX>Date.now())return CAPT;CAPT="";return ""}
+function capForget(){CAPT="";CAPX=0;store.del("jf_cap")}
+function loadCap(){return new Promise((ok,no)=>{if(window.CapGame&&window.CapGame.ver===12)return ok();const sc=document.createElement("script");sc.src="/captcha.js?v=12";sc.onload=ok;sc.onerror=()=>{sc.remove();no(new Error("captcha script"))};document.head.append(sc)})}
+function solveCaptcha(){   /* -> Promise<true when passed>. One at a time: everyone who asks waits for the same one. */
+  if(CAPP)return CAPP;
+  const p=(async()=>{try{await loadCap();const r=await CapGame.modal({headers:{"X-Device":DID}});
+      if(r&&r.token){CAPT=r.token;CAPX=Date.now()+Math.max(60,(r.ttl||1800)-20)*1000;store.set("jf_cap",JSON.stringify({t:CAPT,x:CAPX}));return true}return false}
+    catch(e){return false}finally{if(CAPP===p)CAPP=null}})();
+  CAPP=p;return p}
+addEventListener("hashchange",()=>{if(CAPP&&window.CapGame){CapGame.closeAll();CAPP=null}});   /* left the page: the check goes away too */
+/* the video link. If the server wants the title page opened first, open it quietly and ask again.
+   If it wants a captcha: solve it, then ask again (a stale pass token is dropped first). */
+async function streamApi(id,slug,se,ep){const u="/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+se+"&ep="+ep;
+  for(let tries=0;;tries++){
+    try{return await api(u)}
+    catch(e){
+      if(e.status===403&&e.open&&tries<2){try{await api("/detail/"+slug)}catch(_){}continue}
+      if(e.status===403&&e.captcha&&tries<3){capForget();if(await solveCaptcha())continue;e.cancelled=true}
+      throw e}}}
 const go=x=>{location.hash=x};
 const mount=(...e)=>$app.replaceChildren(...e.flat().filter(Boolean));
 function kill(){if(window.__reelsClean){try{window.__reelsClean()}catch(e){}window.__reelsClean=null}timers.forEach(clearInterval);timers=[];if(hls){hls.destroy();hls=null}const v=document.querySelector("video");if(v){try{v.pause();v.removeAttribute("src");v.load()}catch(e){}}}
@@ -1339,7 +1365,9 @@ function authModal(){let mode="login";
   const title=h("b",{style:"font-size:18px"},"Sign in"),sw=h("button",{class:"back"},"New here? Create an account"),ok=h("button",{class:"pri"},"Sign in");
   const m=modal(title,u,p,err,ok,sw);
   sw.onclick=()=>{mode=mode==="login"?"signup":"login";title.textContent=ok.textContent=mode==="login"?"Sign in":"Create account";sw.textContent=mode==="login"?"New here? Create an account":"Already have an account? Sign in"};
-  ok.onclick=async()=>{err.textContent="";ok.disabled=true;try{const j=await api("/api/"+mode,{username:u.value.trim(),password:p.value});store.set("jf_token",j.token);m.remove();await loadMe();drawNav();route()}catch(e){err.textContent=e.message}ok.disabled=false};
+  ok.onclick=async()=>{if(ok.disabled)return;err.textContent="";ok.disabled=true;try{
+    let j;for(let t=0;;t++){try{j=await api("/api/"+mode,{username:u.value.trim(),password:p.value});break}catch(e){if(e.status===403&&e.captcha&&t<2){capForget();if(await solveCaptcha())continue;throw new Error("Please finish the quick check to continue.")}throw e}}
+    store.set("jf_token",j.token);m.remove();await loadMe();drawNav();route()}catch(e){err.textContent=e.message}ok.disabled=false};
   p.onkeydown=e=>{if(e.key==="Enter")ok.click()};u.focus()}
 function passwordModal(){
   const o=h("input",{class:"in",type:"password",placeholder:"Current password",autocomplete:"current-password"}),n=h("input",{class:"in",type:"password",placeholder:"New password (min. 6 characters)",autocomplete:"new-password"}),msg=h("div",{class:"err"});
@@ -1562,7 +1590,7 @@ async function watch(id,slug,se,ep){
     h("div",{class:"panel slim"},d.series?h("label",{class:"chk"},auto,"Play next episode automatically"):null,h("div",{},dlb,dlMsg)),
     d.series&&d.seasons.length?h("div",{class:"epbox"},epGrid(d.seasons,se,ep,(s,e)=>go(nUrl([s,e])),slug)):null);
   const mine=()=>document.body.contains(box);
-  let data;try{data=await api("/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+(d.series?se:0)+"&ep="+(d.series?ep:0))}catch(e){if(mine())msg.textContent="Server error. Please try again shortly.";return}
+  let data;try{data=await streamApi(id,slug,d.series?se:0,d.series?ep:0)}catch(e){if(mine()){msg.textContent=e.cancelled?"Please finish the quick check to play this video. Open the video again to retry.":(e.status===403||e.status===429)&&e.message?e.message:"Server error. Please try again shortly.";if(e.login){msg.append(" ",h("button",{class:"pri",style:"margin-top:8px",onclick:authModal},"Sign in"))}}return}
   if(!mine())return;const src=data.sources||[];if(!src.length){msg.textContent=data.note||"No stream is available for this title.";return}
   await meReady;if(!mine())return;loadSeen(id);
   const key="pos:"+id+":"+se+":"+ep,sp=ME&&PROG.find(p=>String(p.sid)===String(id)&&+p.season===+se&&+p.episode===+ep);
@@ -1683,13 +1711,13 @@ async function reels(slug,id){
     bar.addEventListener("pointerup",endDrag);bar.addEventListener("pointercancel",endDrag);
     return S}
   async function ensure(k){const S=slides[k];if(!S||S.ready||S.loading)return;S.loading=true;S.spin.classList.add("on");
-    try{const data=await api("/api/stream/"+S.item.subject_id+"?detail_path="+encodeURIComponent(S.item.slug)+"&se=0&ep=0");if(!alive)return;
+    try{const data=await streamApi(S.item.subject_id,S.item.slug,0,0);if(!alive)return;
       const src=data.sources||[];if(!src.length)throw new Error("none");const x=src.find(y=>y.kind!=="hls")||src[0];
       if(x.kind==="hls"&&window.Hls&&Hls.isSupported()){S.hls=new Hls({maxBufferLength:12,capLevelToPlayerSize:true,startFragPrefetch:true});S.hls.loadSource(x.url);S.hls.attachMedia(S.v);
         S.hls.on(Hls.Events.ERROR,(_e,er)=>{if(er.fatal){if(er.type===Hls.ErrorTypes.NETWORK_ERROR)S.hls.startLoad();else if(er.type===Hls.ErrorTypes.MEDIA_ERROR)S.hls.recoverMediaError();else{S.err.textContent="Could not play this video";S.spin.classList.remove("on")}}})}
       else S.v.src=x.url;
       S.v.preload="auto";S.ready=true;if(S===slides[active])go2play(S)}
-    catch(e){S.err.textContent="This video is not available";S.spin.classList.remove("on")}S.loading=false}
+    catch(e){S.err.textContent=e.login?"Sign in to keep watching":e.cancelled?"Quick check needed":(e.status===403||e.status===429)&&e.message?e.message:"This video is not available";S.spin.classList.remove("on")}S.loading=false}
   function go2play(S){S.v.muted=muted;const pr=S.v.play();if(pr&&pr.catch)pr.catch(()=>{if(!muted){S.v.muted=true;muted=true;paintMute();S.v.play().catch(()=>{})}})}
   function activate(k){if(k===active||k<0||k>=slides.length)return;active=k;
     slides.forEach((S,j)=>{if(j!==k){S.v.pause();if(Math.abs(j-k)>2&&S.ready){if(S.hls){S.hls.destroy();S.hls=null}S.v.removeAttribute("src");S.v.load();S.ready=false;S.fill.style.width="0"}}});

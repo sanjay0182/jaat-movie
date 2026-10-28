@@ -11,13 +11,14 @@ import asyncio, hmac, json, os, re, time
 from urllib.parse import quote, urljoin
 import httpx
 import accounts
+import captcha
 import protect
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 app = FastAPI(title="JaatFlix API", version="3.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*", "X-Device", "X-VIP-Key"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*", "X-Device", "X-VIP-Key", "X-Captcha", "X-Admin-Key"])
 protect.start()
 
 _DEBUG = ("/lab", "/shape", "/diag", "/discover", "/peek", "/raw", "/probe")   # developer tools: admin key only
@@ -697,7 +698,7 @@ def _px(u, c, sess=None):
 async def stream(request: Request, subject_id: str, detail_path: str, se: int = 0, ep: int = 0):
     c = protect.ctx(request)
     user = await _me(request)
-    refuse = protect.stream_gate(request, user, subject_id, detail_path)
+    refuse = protect.stream_gate(request, user, subject_id, detail_path, se, ep)
     if refuse is not None:
         return JSONResponse(refuse[1], status_code=refuse[0])
     sess = protect.new_session(c)
@@ -980,27 +981,63 @@ def _err(msg, code=400):
 @app.post("/api/signup")
 async def api_signup(request: Request):
     b = await _body(request)
-    g = protect.login_gate(request, str(b.get("username", "")))
+    uname = str(b.get("username", "")).strip()
+    g = await asyncio.to_thread(protect.login_gate, request, uname, True)      # captcha every time + accounts per IP (DB)
     if g:
         return JSONResponse(g[1], status_code=g[0])
-    tok, err = await asyncio.to_thread(accounts.signup, str(b.get("username", "")).strip(), str(b.get("password", "")))
-    protect.login_note(request, str(b.get("username", "")), not err)
+    tok, err = await asyncio.to_thread(accounts.signup, uname, str(b.get("password", "")), protect.signup_ipk(request))
+    protect.login_note(request, uname, not err)
     if err:
         return _err(err)
+    protect.signup_done(request)
     return {"token": tok, "user": await asyncio.to_thread(accounts.user_for, tok)}
 
 
 @app.post("/api/login")
 async def api_login(request: Request):
     b = await _body(request)
-    g = protect.login_gate(request, str(b.get("username", "")))
+    uname = str(b.get("username", "")).strip()
+    g = protect.login_gate(request, uname)
     if g:
         return JSONResponse(g[1], status_code=g[0])
-    tok, err = await asyncio.to_thread(accounts.login, str(b.get("username", "")).strip(), str(b.get("password", "")))
-    protect.login_note(request, str(b.get("username", "")), not err)
+    tok, err = await asyncio.to_thread(accounts.login, uname, str(b.get("password", "")))
+    protect.login_note(request, uname, not err)
     if err:
         return _err(err)
     return {"token": tok, "user": await asyncio.to_thread(accounts.user_for, tok)}
+
+
+# ---------------------------------------------------------------- captcha ----
+# /api/captcha/new     -> {id, ttl, game:{mode:"text", img:"data:image/png;base64,..."}, pow:{salt,bits}}
+# /api/captcha/verify  {id, pow, text} -> {ok:true, token, ttl} | {ok:false, why, retry:true}
+# /api/captcha/status  -> {pass: bool, mode}
+# The page sends the token in header X-Captcha; protect.ctx() checks it (signed, bound to the IP).
+@app.get("/captcha.js")
+async def captcha_js():
+    return FileResponse("captcha.js", media_type="application/javascript", headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/api/captcha/status")
+async def captcha_status(request: Request):
+    c = protect.ctx(request)
+    return {"pass": bool(c["pass"]), "vip": bool(c["vip"]), "mode": protect.guard.mode(), "captcha": captcha.MODE}
+
+
+@app.post("/api/captcha/{action}")
+async def api_captcha(action: str, request: Request):
+    if action not in ("new", "verify"):
+        return _err("not found", 404)
+    c = protect.ctx(request)
+    b = await _body(request)
+    if action == "new":
+        g = await asyncio.to_thread(captcha.new, c["ip"], c["dev"])      # the picture is drawn with Pillow: off the event loop
+        if not g:
+            return _err("captcha error", 500)
+        return g
+    res = await asyncio.to_thread(captcha.verify, b.get("id"), c["ip"], b)
+    if res.get("ok"):
+        protect.after_captcha(request)           # a passed captcha wipes the bot score: no second one for the same old reason
+    return res
 
 
 @app.post("/api/logout")
@@ -1093,6 +1130,8 @@ async def api_admin(action: str, request: Request):
     b = await _body(request)
     pr = await asyncio.to_thread(protect.admin_action, action, b, request)
     if pr is not None:
+        if isinstance(pr, dict) and "_status" in pr:
+            return JSONResponse({k: v for k, v in pr.items() if k != "_status"}, status_code=pr["_status"])
         return pr
     if action == "stats":
         return await asyncio.to_thread(accounts.admin_stats)

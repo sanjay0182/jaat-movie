@@ -22,6 +22,9 @@
   .tw{overflow-x:auto}
   .stat{font-size:28px;font-weight:600}.mut{color:var(--mut);font-size:13px}
   .hide{display:none}
+  select{background:#0f1115;border:1px solid var(--line);color:var(--tx);border-radius:8px;padding:9px 10px;font-size:14px}
+  .wrapx{flex-wrap:wrap}
+  code{background:#0f1115;border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
 </style>
 </head>
 <body>
@@ -44,6 +47,66 @@
         <button class="ghost" id="refresh">Refresh</button>
         <button class="ghost" id="logout">Logout</button>
       </div>
+    </div>
+    <div class="card" id="guardcard">
+      <div class="mut">Protection (guard)</div>
+      <div id="gst" class="msg" style="margin:6px 0">-</div>
+      <div class="row wrapx">
+        <select id="gmode"><option value="off">off (disabled)</option><option value="log">log (dry-run, only writes)</option><option value="on">on (real blocking)</option></select>
+        <button class="ghost" id="gmodesave">Save mode</button>
+        <button class="ghost" id="gref">Refresh</button>
+      </div>
+      <div class="mut" style="margin-top:6px"><b>off</b> = nothing. <b>log</b> = only writes what it would block. <b>on</b> = really blocks (rate limits, captcha, bans, guest limit). Env <code>PROTECT</code> is only the first value; what you save here is what runs.</div>
+      <div id="gip" class="mut" style="margin-top:8px"></div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+      <div class="mut">VIP keys (no limits at all)</div>
+      <div class="row wrapx" style="margin-top:8px">
+        <input id="gname" placeholder="Name (e.g. TV app)" style="flex:1;min-width:140px" maxlength="40">
+        <button id="gnew">Generate key</button>
+      </div>
+      <div id="gnewbox" class="hide" style="margin-top:10px;padding:10px;border:1px solid var(--grn);border-radius:8px">
+        <div class="mut">This key is shown <b>only now</b>. Copy it:</div>
+        <div class="row" style="margin-top:6px"><input id="gnewkey" readonly><button class="ghost" id="gcopy">Copy</button></div>
+        <div class="mut" style="margin-top:6px">Send it as header <code>X-VIP-Key: key</code> or add <code>?vk=key</code> to the URL.</div>
+      </div>
+      <div id="gmsg" class="msg"></div>
+      <div class="tw"><table>
+        <thead><tr><th>Name</th><th>Created</th><th>Last use</th><th></th></tr></thead>
+        <tbody id="grows"></tbody>
+      </table></div>
+    </div>
+    <div class="card" id="capcard">
+      <div class="mut">Captcha (picture of letters / sum / number order)</div>
+      <div id="cst" class="msg" style="margin:6px 0">-</div>
+      <div class="row wrapx"><button class="ghost" id="cref">Refresh</button></div>
+      <div class="mut" style="margin-top:6px">Asked only when something looks unusual (many different videos fast, many wrong passwords, a high bot score) and <b>always before an account is made</b>. Works only when the mode above is <b>on</b>. A passed captcha lives <span id="cpass">180</span> min and is tied to the IP. Numbers come from env: <code>CAPTCHA_MODE</code> <code>CAPTCHA_TEXT_LEN</code> <code>CAPTCHA_PASS_MIN</code> <code>CAPTCHA_BURST</code> <code>CAPTCHA_POW_BITS</code>.</div>
+      <div class="tw"><table>
+        <thead><tr><th>When</th><th>Who</th><th>Result</th><th>Took</th></tr></thead>
+        <tbody id="crows"></tbody>
+      </table></div>
+    </div>
+    <div class="card" id="botcard">
+      <div class="mut">Bots (bot %, last hour) and the ban list</div>
+      <div id="bst" class="msg" style="margin:6px 0">-</div>
+      <div class="row wrapx">
+        <button class="ghost" id="bref">Refresh</button>
+        <label class="mut" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="bauto" style="width:auto"> auto 10s</label>
+      </div>
+      <div class="row wrapx" style="margin-top:8px">
+        <input id="bkey" placeholder="IP or device id" style="flex:1;min-width:140px" maxlength="80">
+        <input id="bhrs" placeholder="hours (0 = forever)" style="width:150px" maxlength="5">
+        <button class="red" id="bban">Ban</button>
+      </div>
+      <div class="mut" style="margin-top:6px"><b>Bot %</b> = asking for many videos / titles, breaking limits, or opening a video without its title page. <b>suspect</b> = score &ge; <span id="bflag">60</span>. A ban works only in <b>on</b> mode: the banned visitor gets no error, just empty answers.</div>
+      <div class="tw"><table>
+        <thead><tr><th>Who</th><th>Titles / videos</th><th>Limit breaks</th><th>Bot %</th><th>Why</th><th></th></tr></thead>
+        <tbody id="brows"></tbody>
+      </table></div>
+      <div class="mut" style="margin-top:10px">Ban list</div>
+      <div class="tw"><table>
+        <thead><tr><th>Who</th><th>Why</th><th>When</th><th>Until</th><th></th></tr></thead>
+        <tbody id="bbans"></tbody>
+      </table></div>
     </div>
     <div class="card">
       <input id="search" placeholder="Search username...">
@@ -93,12 +156,104 @@ async function load() {
   const j = await api("/api/admin/stats");
   USERS = j.users; $("total").textContent = j.total; render();
 }
+
+// ---- Protection (guard.py + captcha.py) ----
+function ago(ts) { const d = Math.max(0, Date.now() / 1000 - ts); return d < 90 ? Math.round(d) + "s" : d < 5400 ? Math.round(d / 60) + "m" : Math.round(d / 3600) + "h"; }
+function gDraw(j) {
+  const m = j.mode, cls = m === "on" ? "err" : (m === "log" ? "ok" : "");
+  say($("gst"), "Mode: " + m.toUpperCase() + (m === "log" ? " (dry-run)" : "") + " | active IPs (1 min): " + j.active_ips_1min
+    + " | live sessions: " + (j.sessions || 0) + " | downloads now: " + (j.downloads || 0) + "/" + (j.dl_max || 3) + " | VIP keys: " + (j.vip || []).length + "/" + j.vip_max + (j.loaded ? "" : " | database is still loading..."), cls);
+  $("gmode").value = m;
+  const h = j.headers || {};
+  $("gip").textContent = "The server sees your IP as: " + j.your_ip + "   (X-Real-IP=" + (h["X-Real-IP"] || "-") + ", CF=" + (h["CF-Connecting-IP"] || "-")
+    + ", XFF=" + (h["X-Forwarded-For"] || "-") + ", peer=" + (j.peer || "-") + ")"
+    + (Object.keys(j.violations || {}).length ? " | rules fired: " + JSON.stringify(j.violations) : "");
+  $("grows").innerHTML = (j.vip || []).map(k => `<tr><td>${esc(k.name)}</td><td>${fmt(k.created)}</td><td>${k.last_used ? fmt(k.last_used) : "-"}</td>
+    <td><button class="red" data-id="${esc(k.id)}" data-n="${esc(k.name)}">Delete</button></td></tr>`).join("")
+    || `<tr><td colspan="4" class="mut">No keys</td></tr>`;
+  if (j.captcha) cDraw(j.captcha);
+}
+function cDraw(c) {
+  const n = c.counts || {};
+  const whys = Object.keys(n).filter(k => k.startsWith("why_")).map(k => k.slice(4) + " " + n[k]).join(", ");
+  say($("cst"), "Type: " + (c.mode || "text") + " | shown: " + (n.new || 0) + " | passed: " + (n.pass || 0) + " | failed: " + (n.fail || 0) + (whys ? " (" + whys + ")" : "")
+    + " | open now: " + (c.open || 0) + " | hidden puzzle: " + c.pow_bits + " bits | " + (c.burst_max || 5) + " different videos / 60 s = captcha", "");
+  $("cpass").textContent = c.pass_min || 180;
+  $("crows").innerHTML = (c.recent || []).slice().reverse().map(r => `<tr><td>${ago(r.t)} ago</td><td style="word-break:break-all">${esc(r.ip)}</td>
+    <td class="${r.ok ? "ok" : "err"}">${r.ok ? "passed" : "failed: " + esc(r.why)}</td><td>${r.ms ? (r.ms / 1000).toFixed(1) + "s" : "-"}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="mut">Nothing yet</td></tr>`;
+}
+async function gAct(body) {
+  try { const j = await api("/api/admin/guard", body); gDraw(j); return j; }
+  catch (e) { say($("gmsg"), e.message, "err"); }
+}
+$("gref").onclick = () => { gAct({action: "info"}).then(j => j && bDraw(j)); };
+$("cref").onclick = () => gAct({action: "info"});
+$("gmodesave").onclick = async () => {
+  const m = $("gmode").value;
+  if (m === "on" && !confirm("Mode ON = real blocking. Did you watch 'log' for a few days first? Sure?")) return;
+  const j = await gAct({action: "mode", mode: m}); if (j) say($("gmsg"), "Mode saved: " + m, "ok");
+};
+$("gnew").onclick = async () => {
+  const name = $("gname").value.trim(); if (!name) { say($("gmsg"), "Write a name", "err"); return; }
+  const j = await gAct({action: "vip_new", name});
+  if (j && j.key) { $("gnewkey").value = j.key; $("gnewbox").classList.remove("hide"); $("gname").value = ""; say($("gmsg"), "Key created: " + j.name, "ok"); }
+};
+$("gcopy").onclick = async () => {
+  const v = $("gnewkey").value; let ok = false;
+  try { await navigator.clipboard.writeText(v); ok = true; } catch(e) {}
+  if (!ok) { $("gnewkey").select(); try { ok = document.execCommand("copy"); } catch(e) {} }
+  say($("gmsg"), ok ? "Copied" : "Copy failed - select the key and copy it", ok ? "ok" : "err");
+};
+$("grows").onclick = async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (!confirm("Delete key '" + b.dataset.n + "'? Whatever uses this key will be limited again.")) return;
+  $("gnewbox").classList.add("hide"); $("gnewkey").value = "";
+  const j = await gAct({action: "vip_del", id: b.dataset.id}); if (j) say($("gmsg"), "Key deleted", "ok");
+};
+function bDraw(j) {
+  const L = j.limits || {}, flag = L.flag_score || 60; $("bflag").textContent = flag;
+  const banned = new Set((j.ban_list || []).map(b => b.key));
+  say($("bst"), "Mode: " + j.mode.toUpperCase() + " | ban list: " + (j.ban_list || []).length + " | guests: " + (L.guest_max || 5) + " videos / " + (L.guest_hours || 24) + " h"
+    + " | " + (L.conc_max || 2) + " streams at once per IP", j.mode === "on" ? "err" : (j.mode === "log" ? "ok" : ""));
+  $("brows").innerHTML = (j.bots || []).map(b => {
+    const n = b.n || {}, who = b.key + ((b.with || []).length ? " (" + b.with.join(", ") + ")" : "");
+    const cls = b.score >= (L.ban_score || 90) ? "err" : (b.score >= flag ? "ok" : "");
+    return `<tr><td style="word-break:break-all">${esc(who)}<div class="mut">${ago(b.last)} ago</div></td>
+      <td>${n.meta || 0} / ${n.stream || 0}</td>
+      <td>${b.viol || 0}${b.decoy ? " + trap" : ""}</td><td class="${cls}"><b>${b.score}%</b>${b.score >= flag ? " suspect" : ""}</td>
+      <td class="mut">${esc((b.why || []).join("; ") || "-")}</td>
+      <td>${banned.has(b.key) ? `<button class="ghost" data-act="unban" data-k="${esc(b.key)}">Unban</button>` : `<button class="red" data-act="ban" data-k="${esc(b.key)}">Ban</button>`}</td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="mut">No activity yet</td></tr>`;
+  $("bbans").innerHTML = (j.ban_list || []).map(b => `<tr><td style="word-break:break-all">${esc(b.key)}</td><td class="mut">${esc(b.why || "-")}${b.auto ? " (auto)" : ""}</td>
+    <td>${fmt(b.created)}</td><td>${b.until ? fmt(b.until) : "forever"}</td>
+    <td><button class="ghost" data-act="unban" data-k="${esc(b.key)}">Unban</button></td></tr>`).join("") || `<tr><td colspan="5" class="mut">No bans</td></tr>`;
+}
+async function bAct(body) {
+  try { const j = await api("/api/admin/guard", body); bDraw(j); gDraw(j); return j; }
+  catch (e) { say($("bst"), e.message, "err"); }
+}
+$("bref").onclick = () => bAct({action: "bots"});
+$("bban").onclick = async () => {
+  const k = $("bkey").value.trim(); if (!k) { say($("bst"), "Write an IP or device id", "err"); return; }
+  const j = await bAct({action: "ban", key: k, hours: $("bhrs").value.trim() || 0}); if (j) { $("bkey").value = ""; say($("bst"), "Banned: " + k, "ok"); }
+};
+$("brows").onclick = $("bbans").onclick = async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.act === "ban" && !confirm("Ban '" + b.dataset.k + "'? (in ON mode its videos stop)")) return;
+  const j = await bAct({action: b.dataset.act, key: b.dataset.k, hours: b.dataset.act === "ban" ? 0 : undefined});
+  if (j) say($("bst"), (b.dataset.act === "ban" ? "Banned: " : "Unbanned: ") + b.dataset.k, "ok");
+};
+let BTIMER = null;
+$("bauto").onchange = () => { clearInterval(BTIMER); if ($("bauto").checked) BTIMER = setInterval(() => bAct({action: "bots"}), 10000); };
+
 async function login() {
   KEY = $("key").value.trim() || KEY;
   try {
     await load();
     try { sessionStorage.setItem("ak", KEY); } catch(e) {}
     $("login").classList.add("hide"); $("panel").classList.remove("hide");
+    api("/api/admin/guard", {action: "info"}).then(j => { gDraw(j); bDraw(j); }).catch(e => say($("gmsg"), e.message, "err"));
   } catch(e) { say($("lmsg"), e.message, "err"); }
 }
 $("go").onclick = login;
