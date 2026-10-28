@@ -130,9 +130,36 @@ def token(u, c, kind="s", sess=None, exp=None, bind_dev=False):
     return payload + "." + _sig(payload, u)
 
 
+# ---- the real (source) url never travels in clear text: it is hidden inside the link (e=) and only this server / the Worker can open it ----
+def _ek():
+    return hashlib.sha256(b"jf-enc|" + _get_secret()).digest()
+
+
+def _ks(nonce, n):
+    k = _ek()
+    return b"".join(hmac.new(k, nonce + i.to_bytes(4, "big"), hashlib.sha256).digest() for i in range((n + 31) // 32))
+
+
+def enc(u):
+    """url -> opaque text.  random nonce + (url XOR HMAC-SHA256 keystream).  The Worker has the same code (worker.js)."""
+    b = u.encode("utf-8")
+    n = os.urandom(12)
+    return _b64(n + bytes(x ^ y for x, y in zip(b, _ks(n, len(b)))))
+
+
+def dec(e):
+    """opaque text -> url ("" when it is garbage).  The link signature (over the real url) is still checked by verify()."""
+    try:
+        raw = _unb64(e)
+        n, ct = raw[:12], raw[12:]
+        return bytes(x ^ y for x, y in zip(ct, _ks(n, len(ct)))).decode("utf-8")
+    except Exception:
+        return ""
+
+
 def link(u, c, sess=None, kind="s", path="/p", bind_dev=False):
-    """A signed same-site link to url u."""
-    return "%s?u=%s&t=%s" % (path, quote(u, safe=""), token(u, c, kind, sess, bind_dev=bind_dev))
+    """A signed same-site link to url u (the url itself is encrypted into e=)."""
+    return "%s?e=%s&t=%s" % (path, enc(u), token(u, c, kind, sess, bind_dev=bind_dev))
 
 
 def link_like(u, c, t_old):

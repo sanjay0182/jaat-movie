@@ -37,12 +37,20 @@ def _pimg(u):
     return "/img?u=%s&t=%s" % (quote(u, safe=""), protect._sig("img", u))
 
 
+def _worker_bases():
+    """VIDEO_WORKER urls (comma separated), always with https:// - these links are ours and must NOT be blanked by _clean."""
+    ws = [w.strip().rstrip("/") for w in os.environ.get("VIDEO_WORKER", "").split(",") if w.strip()]
+    return [w if w.lower().startswith(("http://", "https://")) else "https://" + w.lstrip("/") for w in ws]
+
+
 def _clean(o, key=""):
     if isinstance(o, dict):
         return {k: _clean(v, key if (k == "url" and key in _IMG_KEYS) else k) for k, v in o.items() if k not in _DROP_KEYS}
     if isinstance(o, list):
         return [_clean(v, key) for v in o]
     if isinstance(o, str) and o[:4].lower() == "http":
+        if any(o.startswith(w + "/") for w in _worker_bases()):   # signed link to our own Worker (its ?u= holds the encoded upstream url)
+            return o
         if _IMG_EXT.search(o) or key in _IMG_KEYS:
             return _pimg(o) if protect.safe_url(o) else ""
         if _UP_HOST.search(o):
@@ -761,8 +769,7 @@ def _pick_worker(c):
     """VIDEO_WORKER can hold several Worker URLs, comma separated (e.g. one per Cloudflare account).
     A viewer always gets the same one (hash of device id / IP), so the load is split evenly."""
     import hashlib
-    ws = [w.strip().rstrip("/") for w in os.environ.get("VIDEO_WORKER", "").split(",") if w.strip()]
-    ws = [w if w.lower().startswith(("http://", "https://")) else "https://" + w.lstrip("/") for w in ws]   # env without https:// -> add it
+    ws = _worker_bases()
     if not ws:
         return ""
     k = (c.get("dev") or c.get("ip") or "") if c else ""
@@ -774,7 +781,7 @@ def _px(u, c, sess=None, bind=False):
     bind=True also ties the link to the browser (X-Device) - only for hls.js, a plain <video> cannot send that header."""
     l = protect.link(u, c, sess, bind_dev=bind)
     w = _pick_worker(c)
-    return (w + l + "&r=" + quote(_ref["v"], safe="")) if w else l
+    return (w + l + "&q=" + protect.enc(_ref["v"])) if w else l      # referer is hidden too (q=)
 
 
 @app.get("/api/stream/{subject_id}")
@@ -846,7 +853,11 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
 
 
 @app.get("/p")
-async def proxy(request: Request, u: str, t: str = ""):
+async def proxy(request: Request, u: str = "", t: str = "", e: str = ""):
+    if e:
+        u = protect.dec(e)
+    if not u:
+        return Response("forbidden", status_code=403, headers={"Cache-Control": "no-store"})
     pc = protect.ctx(request)
     if not pc["vip"]:
         ok, why = protect.verify(pc, u, t, "s")
@@ -899,7 +910,11 @@ async def captions(request: Request, subject_id: str, detail_path: str, id: str 
 
 
 @app.get("/sub")
-async def sub(request: Request, u: str, t: str = ""):
+async def sub(request: Request, u: str = "", t: str = "", e: str = ""):
+    if e:
+        u = protect.dec(e)
+    if not u:
+        return Response("forbidden", status_code=403)
     pc = protect.ctx(request)
     if not pc["vip"]:
         ok, why = protect.verify(pc, u, t, "s")
@@ -994,7 +1009,9 @@ async def _dl_hls(u, name, check, done=None):
 
 
 @app.get("/dl")
-async def download(request: Request, u: str, name: str = "video", check: int = 0, t: str = ""):
+async def download(request: Request, u: str = "", name: str = "video", check: int = 0, t: str = "", e: str = ""):
+    if e:
+        u = protect.dec(e)
     if not u.startswith("http"):
         return JSONResponse({"ok": False, "error": "Invalid link"}, status_code=400)
     pc = protect.ctx(request)
@@ -1057,6 +1074,8 @@ async def api_dltok(request: Request):
     """Download ticket: only for a signed-in user, only for a url this page was given (its stream link proves that)."""
     b = await _body(request)
     u, t = str(b.get("u", "")), str(b.get("t", ""))
+    if u and not u.startswith("http"):      # the page sends the opaque e= text of its stream link
+        u = protect.dec(u)
     user = await _me(request)
     if not user:
         return JSONResponse({"error": "Please sign in to download.", "login": True}, status_code=401)
@@ -1171,6 +1190,25 @@ async def api_me(request: Request):
     favs, prog = await asyncio.gather(asyncio.to_thread(accounts.get_favs, u["id"]),
                                       asyncio.to_thread(accounts.get_progress, u["id"]))
     return {"user": u, "progress": prog, "favs": favs}
+
+
+_CLOG = {"t": 0.0, "n": 0}
+
+
+@app.post("/api/clog")
+async def clog(request: Request):
+    """The browser reports a player error here -> it shows up in the server log as [CLIENT-ERR] (40 per minute at most)."""
+    now = time.time()
+    if now - _CLOG["t"] > 60:
+        _CLOG["t"], _CLOG["n"] = now, 0
+    _CLOG["n"] += 1
+    if _CLOG["n"] <= 40:
+        try:
+            body = (await request.body())[:2500].decode("utf-8", "ignore")
+            print("[CLIENT-ERR] ip=%s %s" % (protect.ctx(request)["ip"], re.sub(r"\s+", " ", body)), flush=True)
+        except Exception:
+            pass
+    return {"ok": True}
 
 
 @app.post("/api/progress")

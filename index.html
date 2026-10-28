@@ -1104,6 +1104,7 @@ function solveCaptcha(){   /* -> Promise<true when passed>. One at a time: every
 addEventListener("hashchange",()=>{if(CAPP&&window.CapGame){CapGame.closeAll();CAPP=null}});   /* left the page: the check goes away too */
 /* the video link. If the server wants the title page opened first, open it quietly and ask again.
    If it wants a captcha: solve it, then ask again (a stale pass token is dropped first). */
+function clog(o){try{fetch("/api/clog",{method:"POST",headers:{"X-Device":DID,"Content-Type":"text/plain"},body:JSON.stringify(o),keepalive:true}).catch(()=>{})}catch(e){}}
 async function streamApi(id,slug,se,ep){const u="/api/stream/"+id+"?detail_path="+encodeURIComponent(slug)+"&se="+se+"&ep="+ep+(window.Hls&&Hls.isSupported()?"&hj=1":"");
   for(let tries=0;;tries++){
     try{return await api(u)}
@@ -1609,9 +1610,9 @@ async function watch(id,slug,se,ep){
   let resume=(sp&&sp.pos>10&&sp.dur-sp.pos>30?sp.pos:0)||+store.get(key)||0,cur=0,qSel=-1;
   const saveProg=ended=>{if(!ME||!video.duration)return;const r={sid:String(id),season:+se||0,episode:+ep||0,pos:ended?video.duration:video.currentTime,dur:video.duration,slug,name:d.title,poster_url:d.poster,rating:d.rating};
     api("/api/progress",r).then(()=>{const i=PROG.findIndex(x=>String(x.sid)===String(id));if(i>=0)PROG.splice(i,1);PROG.unshift(r);if(ended){SEENSET.add((+se||0)+":"+(+ep||0));applySeen()}}).catch(()=>{})};const mark=ended=>{if(!video.duration||!isFinite(video.duration))return;const pct=epProgSet(slug,+se||0,+ep||0,ended?video.duration:video.currentTime,video.duration,ended),bx=document.querySelector('.eps .ep[data-k="'+(+se||0)+":"+(+ep||0)+'"]');if(bx)setEpBox(bx,pct)};const tried=new Set();
-  dlb.onclick=async()=>{const x=src[cur];if(!x)return;const xu=new URL(x.url,location.href);let raw=xu.searchParams.get("u")||"",tk=xu.searchParams.get("t")||"";
+  dlb.onclick=async()=>{const x=src[cur];if(!x)return;const xu=new URL(x.url,location.href);let raw=xu.searchParams.get("e")||xu.searchParams.get("u")||"",tk=xu.searchParams.get("t")||"";
     if(x.kind==="hls"&&hls&&hls.levels.length>1){const k=qSel>=0?qSel:hls.levels.reduce((b,l,i,a)=>l.height>a[b].height?i:b,0),L=hls.levels[k],lu=L&&(L.uri||(L.url&&L.url[0]));
-      if(lu){const lq=new URL(lu,location.href),q=lq.searchParams.get("u");if(q){raw=q;tk=lq.searchParams.get("t")||tk}}}
+      if(lu){const lq=new URL(lu,location.href),q=lq.searchParams.get("e")||lq.searchParams.get("u");if(q){raw=q;tk=lq.searchParams.get("t")||tk}}}
     const nm=(title+(x.kind==="hls"?"":" "+x.label)).replace(/[^\w\- ]+/g,"").trim().replace(/ +/g,"_")||"video";
     dlb.disabled=true;dlMsg.textContent="Checking…";
     let dl;try{dl=(await api("/api/dltok",{u:raw,t:tk,name:nm})).url}catch(e){dlMsg.textContent=e.login?"Please sign in to download.":(e.message||"Download is not available.");if(e.login)authModal();dlb.disabled=false;return}
@@ -1631,16 +1632,18 @@ async function watch(id,slug,se,ep){
     video.onwaiting=()=>{if(msg.style.display!=="flex")buf.style.display="block"};
     video.onseeked=()=>{if(video.readyState>=3)buf.style.display="none"};
     video.onloadedmetadata=()=>{if(resume>10){video.currentTime=resume;resume=0}};
-    video.onerror=()=>{if(!hls&&!fb()){const ve=video.error,base="Video error "+(ve?ve.code+(ve.message?" ("+ve.message+")":""):"?")+" · "+(x.kind||"")+" "+(x.label||"");
-      /* "Empty src attribute" is only the leftover of the last source switch - ask the server itself why it failed */
-      bad(base+" · checking…");
-      fetch(x.url,{headers:{Range:"bytes=0-15",...(x.kind==="hls"?{"X-Device":DID}:{})}}).then(async r=>{const ab=new Uint8Array(await r.arrayBuffer()),b=ab.slice(0,16),hx=[...b].map(n=>n.toString(16).padStart(2,"0")).join(" "),tx=r.status>=400?" | body: "+new TextDecoder().decode(ab.slice(0,120)).replace(/\s+/g," "):"";const u=String(x.url);bad(base+" || HTTP "+r.status+" | type "+(r.headers.get("content-type")||"-")+" | range "+(r.headers.get("content-range")||"-")+" | tries "+(r.headers.get("x-jf-tries")||"-")+" | bytes "+hx+tx+" || url("+u.length+") "+u.slice(0,60))}).catch(e=>{const u=String(x.url);bad(base+" || Fetch failed: "+e.message+" || url("+u.length+") "+u.slice(0,60))})}};
+    video.onerror=()=>{if(!hls&&!fb()){const ve=video.error,u=String(x.url||""),base="Video error "+(ve?ve.code+(ve.message?" ("+ve.message+")":""):"?")+" · "+(x.kind||"")+" "+(x.label||"");
+      bad(base);
+      /* the details go to the server log (not the screen): look for [CLIENT-ERR] in the blitz logs */
+      if(!u){clog({type:"empty-src",base,kind:x.kind,label:x.label});return}
+      fetch(u,{headers:{Range:"bytes=0-15",...(x.kind==="hls"?{"X-Device":DID}:{})}}).then(async r=>{const ab=new Uint8Array(await r.arrayBuffer()),hx=[...ab.slice(0,16)].map(n=>n.toString(16).padStart(2,"0")).join(" ");
+        clog({type:"src-check",base,status:r.status,ctype:r.headers.get("content-type"),range:r.headers.get("content-range"),tries:r.headers.get("x-jf-tries"),bytes:hx,body:r.status>=400?new TextDecoder().decode(ab.slice(0,160)):"",len:u.length,url:u.slice(0,700)})}).catch(e=>clog({type:"src-fetch-failed",base,err:String(e&&e.message),len:u.length,url:u.slice(0,700)}))}};
     if(x.kind==="hls"&&window.Hls&&Hls.isSupported()){let nt=0,mt=0;
       hls=new Hls({xhrSetup:x=>{try{x.setRequestHeader("X-Device",DID)}catch(e){}},maxBufferLength:30,capLevelToPlayerSize:true,startFragPrefetch:true,manifestLoadingMaxRetry:3,fragLoadingMaxRetry:4});
       hls.loadSource(x.url);hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED,()=>{video.play().catch(hide)});
       hls.on(Hls.Events.FRAG_BUFFERED,()=>{nt=0});
-      hls.on(Hls.Events.ERROR,(_e,er)=>{if(!er.fatal)return;
+      hls.on(Hls.Events.ERROR,(_e,er)=>{if(!er.fatal)return;clog({type:"hls",t:er.type,d:er.details,code:er.response&&er.response.code,url:String(er.url||"").slice(0,500)});
         if(er.type===Hls.ErrorTypes.NETWORK_ERROR&&nt++<3){buf.style.display="block";setTimeout(()=>hls&&hls.startLoad(video.currentTime||-1),1500*nt)}
         else if(er.type===Hls.ErrorTypes.MEDIA_ERROR&&mt++<3)hls.recoverMediaError();
         else if(!fb())bad("Stream failed: "+er.type+" / "+er.details+(er.response&&er.response.code?" / HTTP "+er.response.code:""))})}
