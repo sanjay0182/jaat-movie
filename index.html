@@ -1009,6 +1009,14 @@ html.big .t10r{grid-auto-columns:clamp(250px,18vw,340px)}
 .rail.midr:not(.t10r) .card:has(.pw.ls){grid-column:span 2}
 /* hero tag: lighter glass pill instead of solid dark-text blue */
 .hero .tag{background:rgba(30,136,255,.55);color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.28);font-size:10.5px;font-weight:800;padding:5px 11px;box-shadow:none;text-shadow:0 1px 4px rgba(0,0,0,.35)}
+
+/* ===== v8: smooth hero - same height on every slide, no sliding text, skeleton = real size ===== */
+.hero:not(.dh) h1{display:flex;align-items:center;justify-content:center;min-height:2.24em}
+.hero:not(.dh) h1 .h1t{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+@media(min-width:760px){.hero:not(.dh) h1{justify-content:flex-start;min-height:0}}
+html:not(.lite) .hero .hin>*,html:not(.lite) .hero .hin>*:nth-child(n){animation:hfade .3s ease-out both!important;animation-delay:0s!important;transform:none}
+.hero .hban .art,.hero .hban .bg{animation:hfade .3s ease-out}
+@media(max-width:759px){.hero.sk{min-height:440px;margin:6px 0 4px}}
 </style>
 </head>
 <body>
@@ -1202,7 +1210,7 @@ async function home(){
       fill(b.rating,b.year,kl);
       if(!b.rating||!b.year)getDet(b.slug).then(d=>{if(cur===i&&info.isConnected)fill(d.rating||b.rating,d.year||b.year,d.series?"Series"+(d.seasons.length>1?" \u00b7 "+d.seasons.length+" seasons":""):kl)}).catch(()=>{});
       box.replaceChildren(h("div",{class:"hban"},h("div",{class:"bg",style:bgS(b.poster_url)}),art,h("span",{class:"tag"},"#"+(i+1)+" Trending")),
-        h("div",{class:"hin"},h("div",{class:"in2"},h("span",{class:"kick"},"Free \u00b7 "+kl),h("h1",{},cleanName(b.name)),
+        h("div",{class:"hin"},h("div",{class:"in2"},h("span",{class:"kick"},"Free \u00b7 "+kl),h("h1",{},h("span",{class:"h1t"},cleanName(b.name))),
           info,
           gl.length?h("div",{class:"hg"},gl.map(x=>h("span",{},x))):null,
           h("div",{class:"row2"},h("button",{class:"pri",onclick:()=>open(b)},"\u25b6 Watch now"),h("button",{class:"glass",onclick:()=>open(b)},"Details")),
@@ -1211,6 +1219,7 @@ async function home(){
     /* swipe left / right to change slides */
     box.addEventListener("touchstart",e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
     box.addEventListener("touchend",e=>{if(N<2)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.5)to(i+(dx<0?1:-1))},{passive:true});
+    ban.forEach(b=>{if(b.poster_url){const im=new Image();im.referrerPolicy="no-referrer";im.src=b.poster_url}});
     draw();frag.push(box)}
   frag.push(catBar());
   const cutAt=frag.length;
