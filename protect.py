@@ -107,7 +107,12 @@ def new_session(c):
     return guard.sess_open(c["ip"], dev=c["dev"])
 
 
-def token(u, c, kind="s", sess=None, exp=None):
+def _dh(dev):
+    """Short hash of the browser id (X-Device) - the raw id never goes into a link."""
+    return _b64(hashlib.sha256(dev.encode("utf-8", "ignore")).digest())[:12] if dev else ""
+
+
+def token(u, c, kind="s", sess=None, exp=None, bind_dev=False):
     now = time.time()
     if sess:
         sid, ipk, e = sess["sid"], sess["ipk"], sess["exp"]
@@ -117,13 +122,17 @@ def token(u, c, kind="s", sess=None, exp=None):
         e = now + DL_LIFE
     if exp:
         e = exp
-    payload = _b64(json.dumps({"k": kind, "s": sid, "i": ipk, "e": round(e)}, separators=(",", ":")).encode())
+    claims = {"k": kind, "s": sid, "i": ipk, "e": round(e)}
+    dh = (sess or {}).get("dh") or (_dh(c.get("dev", "")) if bind_dev else "")
+    if dh:
+        claims["d"] = dh                      # the Worker only serves this link to this device
+    payload = _b64(json.dumps(claims, separators=(",", ":")).encode())
     return payload + "." + _sig(payload, u)
 
 
-def link(u, c, sess=None, kind="s", path="/p"):
+def link(u, c, sess=None, kind="s", path="/p", bind_dev=False):
     """A signed same-site link to url u."""
-    return "%s?u=%s&t=%s" % (path, quote(u, safe=""), token(u, c, kind, sess))
+    return "%s?u=%s&t=%s" % (path, quote(u, safe=""), token(u, c, kind, sess, bind_dev=bind_dev))
 
 
 def link_like(u, c, t_old):
@@ -131,7 +140,7 @@ def link_like(u, c, t_old):
     p = _parse(t_old, "")
     sess = None
     if p:
-        sess = {"sid": p["s"], "ipk": p["i"], "exp": p["e"]}
+        sess = {"sid": p["s"], "ipk": p["i"], "exp": p["e"], "dh": p.get("d", "")}
     return link(u, c, sess)
 
 
@@ -141,7 +150,7 @@ def _parse(t, u, check_sig=False):
         if check_sig and not hmac.compare_digest(sig, _sig(payload, u)):
             return None
         d = json.loads(_unb64(payload))
-        return {"k": d["k"], "s": d["s"], "i": d["i"], "e": float(d["e"])}
+        return {"k": d["k"], "s": d["s"], "i": d["i"], "e": float(d["e"]), "d": d.get("d", "")}
     except Exception:
         return None
 
