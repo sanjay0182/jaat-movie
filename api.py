@@ -784,6 +784,21 @@ def _px(u, c, sess=None, bind=False):
     return (w + l + "&q=" + protect.enc(_ref["v"])) if w else l      # referer is hidden too (q=)
 
 
+async def _dbg_probe(u):
+    """DEBUG_STREAM=1: ask the video server ourselves (same headers as /p) and write what it says into the log -> [STREAM-DBG]."""
+    try:
+        from urllib.parse import urlparse as _up, parse_qs as _pq
+        p = _up(u)
+        info = "host=%s path=%s qkeys=%s" % (p.netloc, p.path[:70], ",".join(sorted(_pq(p.query).keys())))
+        h = {"User-Agent": UA, "Referer": _ref["v"], "Origin": _ref["v"].rstrip("/"), "Accept": "*/*", "Range": "bytes=0-15"}
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20, **CK) as c:
+            r = await c.get(u, headers=h)
+        print("[STREAM-DBG] %s | blitz->video-server: %s ctype=%s server=%s cf-ray=%s via-IN_PROXY=%s first-bytes=%r"
+              % (info, r.status_code, r.headers.get("content-type"), r.headers.get("server"), bool(r.headers.get("cf-ray")), bool(PROXY), r.content[:24]), flush=True)
+    except Exception as e:
+        print("[STREAM-DBG] probe failed", repr(e)[:200], flush=True)
+
+
 @app.get("/api/stream/{subject_id}")
 async def stream(request: Request, subject_id: str, detail_path: str, se: int = 0, ep: int = 0, hj: int = 0):
     c = protect.ctx(request)
@@ -836,6 +851,10 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
             res = int(s.get("resolutions") or 0)
             src.append({"kind": "hls" if ".m3u8" in s["url"] else "mp4", "label": f"{res}p", "res": res, "url": _px(s["url"], c, sess, bind=bool(hj) and ".m3u8" in s["url"])})
     src.sort(key=lambda x: -x["res"])
+    if os.environ.get("DEBUG_STREAM") == "1":
+        _mp = next((x_.get("url") for x_ in (pd.get("streams") or []) if x_.get("url") and ".m3u8" not in x_["url"]), None)
+        if _mp:
+            asyncio.create_task(_dbg_probe(_mp))
     st = (pd.get("streams") or pd.get("dash") or [None])[0] or {}
     cap = {"id": st.get("id"), "fmt": st.get("format") or "MP4"}
     why = None
