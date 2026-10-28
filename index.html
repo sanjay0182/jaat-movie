@@ -1637,7 +1637,7 @@ async function watch(id,slug,se,ep){
       /* the details go to the server log (not the screen): look for [CLIENT-ERR] in the blitz logs */
       if(!u){clog({type:"empty-src",base,kind:x.kind,label:x.label});return}
       fetch(u,{headers:{Range:"bytes=0-15",...(x.kind==="hls"?{"X-Device":DID}:{})}}).then(async r=>{const ab=new Uint8Array(await r.arrayBuffer()),hx=[...ab.slice(0,16)].map(n=>n.toString(16).padStart(2,"0")).join(" ");
-        clog({type:"src-check",base,status:r.status,ctype:r.headers.get("content-type"),range:r.headers.get("content-range"),tries:r.headers.get("x-jf-tries"),bytes:hx,body:r.status>=400?new TextDecoder().decode(ab.slice(0,160)):"",len:u.length,url:u.slice(0,700)})}).catch(e=>clog({type:"src-fetch-failed",base,err:String(e&&e.message),len:u.length,url:u.slice(0,700)}))}};
+        clog({type:"src-check",base,status:r.status,ctype:r.headers.get("content-type"),range:r.headers.get("content-range"),tries:r.headers.get("x-jf-tries"),bytes:hx,body:r.status>=400?new TextDecoder().decode(ab.slice(0,900)):"",len:u.length,url:u.slice(0,40)})}).catch(e=>clog({type:"src-fetch-failed",base,err:String(e&&e.message),len:u.length,url:u.slice(0,700)}))}};
     if(x.kind==="hls"&&window.Hls&&Hls.isSupported()){let nt=0,mt=0;
       hls=new Hls({xhrSetup:x=>{try{x.setRequestHeader("X-Device",DID)}catch(e){}},maxBufferLength:30,capLevelToPlayerSize:true,startFragPrefetch:true,manifestLoadingMaxRetry:3,fragLoadingMaxRetry:4});
       hls.loadSource(x.url);hls.attachMedia(video);
