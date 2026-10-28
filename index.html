@@ -983,8 +983,6 @@ html.big .t10r{grid-auto-columns:clamp(250px,18vw,340px)}
 
 /* ===== v7 fixes: details poster, 2-col "see all", hero, midnight 16:9, coming soon ===== */
 /* 1) details page: portrait poster is smaller + centred (was full width = too tall on phones) */
-.hban.dpb.por{width:62%;max-width:300px;margin-left:auto;margin-right:auto;max-height:58vh}
-@media(min-width:900px){.hban.dpb.por{width:100%;max-width:none;margin:0;max-height:80vh}}
 .soonnote{margin:14px 0 0;padding:11px 14px;border-radius:14px;background:color-mix(in srgb,var(--accent) 12%,var(--panel));color:var(--text);font-size:13.5px;font-weight:600;line-height:1.4}
 .hero.dh .soonnote+.row2{margin-top:12px}
 .hero.dh .row2 .glass.fav{flex:1 1 auto}
@@ -1017,6 +1015,10 @@ html.big .t10r{grid-auto-columns:clamp(250px,18vw,340px)}
 html:not(.lite) .hero .hin>*,html:not(.lite) .hero .hin>*:nth-child(n){animation:hfade .3s ease-out both!important;animation-delay:0s!important;transform:none}
 .hero .hban .art,.hero .hban .bg{animation:hfade .3s ease-out}
 @media(max-width:759px){.hero.sk{min-height:440px;margin:6px 0 4px}}
+
+/* home rails: cards ~30% bigger (Top 10 / Trending stays as it was) */
+@media(max-width:899px){.rail:not(.t10r){grid-auto-columns:clamp(161px,47vw,247px)}
+.rail.midr:not(.t10r){grid-auto-columns:clamp(161px,47vw,247px)}}
 </style>
 </head>
 <body>
@@ -1345,7 +1347,7 @@ async function show(slug,id){
   const fb=h("button",{class:"glass fav"+(inList()?" on":""),onclick:()=>{toggleFav(item);fb.textContent=favTxt();fb.classList.toggle("on",inList())}},favTxt());
   /* poster card: the whole picture, no crop, rounded corners; name and details sit below it (never on top of the picture) */
   const ban=h("div",{class:"hban dpb"}),pic=h("img",{class:"dpic",alt:"",referrerpolicy:"no-referrer",src:d.poster||""});
-  pic.onload=()=>{if(pic.naturalWidth){const r=pic.naturalWidth/pic.naturalHeight;ban.style.aspectRatio=Math.min(2.4,Math.max(.7,r)).toFixed(4);ban.classList.toggle("por",r<1)}};pic.onerror=()=>pic.remove();
+  pic.onload=()=>{if(pic.naturalWidth){const r=pic.naturalWidth/pic.naturalHeight;ban.style.aspectRatio=Math.min(2.4,Math.max(.75,r)).toFixed(4);ban.classList.toggle("por",r<1)}};pic.onerror=()=>pic.remove();
   ban.append(pic);if(pic.complete&&pic.naturalWidth)pic.onload();
   const info=[d.rating&&!isNaN(+d.rating)?h("span",{class:"hr"},"\u2605 "+(+d.rating).toFixed(1)):null,h("span",{},d.series?"Series":"Movie"),d.series&&d.seasons.length>1?h("span",{},d.seasons.length+" seasons"):null,d.year?h("span",{},d.year):null,d.tags&&d.tags[0]?h("span",{},d.tags[0]):null].filter(Boolean);
   const hd=h("p",{class:"hd"},d.desc||"No description available."),more=d.desc&&d.desc.length>130?h("button",{class:"hmore",onclick:()=>{const o=hd.classList.toggle("open");more.textContent=o?"Less":"More"}},"More"):null;
