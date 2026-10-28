@@ -784,6 +784,13 @@ def _px(u, c, sess=None, bind=False):
     return (w + l + "&q=" + protect.enc(_ref["v"])) if w else l      # referer is hidden too (q=)
 
 
+def _mbw(spec, c, sess=None, bind=False):
+    """WORKER_RESOLVE=1: the link carries only WHAT to play (subject / episode / quality). The Worker asks MovieBox for the
+    signed video link itself, so the link and the video request come from the same Cloudflare IP."""
+    u = "mb:" + json.dumps(spec, separators=(",", ":"))
+    return _pick_worker(c) + protect.link(u, c, sess, bind_dev=bind) + "&q=" + protect.enc(_ref["v"])
+
+
 async def _dbg_probe(items):
     """DEBUG_STREAM=1: ask the video server for EVERY mp4 quality (same urls the player gets), with and without Referer,
     and log DNS ips + final host + headers -> [STREAM-DBG]."""
@@ -853,14 +860,19 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
                 pr, pd, used = r2, d2, (se2, ep2)
                 break
     src = []
-    for x in pd.get("hls") or []:  # hls items can be dicts or strings
+    _rs = os.environ.get("WORKER_RESOLVE") == "1" and bool(_worker_bases())
+    _base = {"s": subject_id, "d": detail_path, "se": used[0], "ep": used[1], "dom": dom}
+    for i, x in enumerate(pd.get("hls") or []):  # hls items can be dicts or strings
         u = x.get("url") if isinstance(x, dict) else x
         if u:
-            src.append({"kind": "hls", "label": "Auto (HLS)", "res": 9999, "url": _px(u, c, sess, bind=bool(hj))})
-    for s in pd.get("streams") or []:
+            _l = _mbw({**_base, "l": "hls", "n": i}, c, sess, bind=bool(hj)) if _rs else _px(u, c, sess, bind=bool(hj))
+            src.append({"kind": "hls", "label": "Auto (HLS)", "res": 9999, "url": _l})
+    for j, s in enumerate(pd.get("streams") or []):
         if s.get("url"):
             res = int(s.get("resolutions") or 0)
-            src.append({"kind": "hls" if ".m3u8" in s["url"] else "mp4", "label": f"{res}p", "res": res, "url": _px(s["url"], c, sess, bind=bool(hj) and ".m3u8" in s["url"])})
+            _m3 = ".m3u8" in s["url"]
+            _l = _mbw({**_base, "l": "streams", "n": j, "r": res, "m": _m3}, c, sess, bind=bool(hj) and _m3) if _rs else _px(s["url"], c, sess, bind=bool(hj) and _m3)
+            src.append({"kind": "hls" if _m3 else "mp4", "label": f"{res}p", "res": res, "url": _l})
     src.sort(key=lambda x: -x["res"])
     if os.environ.get("DEBUG_STREAM") == "1":
         _items = [("%sp" % (x_.get("resolutions") or "?"), x_["url"]) for x_ in (pd.get("streams") or []) if x_.get("url") and ".m3u8" not in x_["url"]]
