@@ -980,6 +980,35 @@ html.big .t10r{grid-auto-columns:clamp(250px,18vw,340px)}
 .hban.dpb{aspect-ratio:4/3}
 .hero.dh .hban.dpb{border-radius:24px}
 @media(min-width:900px){.hero.dh .hban.dpb{max-height:80vh}}
+
+/* ===== v7 fixes: details poster, 2-col "see all", hero, midnight 16:9, coming soon ===== */
+/* 1) details page: portrait poster is smaller + centred (was full width = too tall on phones) */
+.hban.dpb.por{width:62%;max-width:300px;margin-left:auto;margin-right:auto;max-height:58vh}
+@media(min-width:900px){.hban.dpb.por{width:100%;max-width:none;margin:0;max-height:80vh}}
+.soonnote{margin:14px 0 0;padding:11px 14px;border-radius:14px;background:color-mix(in srgb,var(--accent) 12%,var(--panel));color:var(--text);font-size:13.5px;font-weight:600;line-height:1.4}
+.hero.dh .soonnote+.row2{margin-top:12px}
+.hero.dh .row2 .glass.fav{flex:1 1 auto}
+/* 2) "See all" pages: 2 columns on phones */
+@media(max-width:759px){.grid.two{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 14px}}
+/* 3) home hero: same size on every slide (no jumping), cover for wide art, whole poster over blur for tall art */
+@media(max-width:759px){
+.hero:not(.dh) .hban{aspect-ratio:16/9;max-height:none;width:100%;margin:0}
+.hero .tag{left:12px;top:12px;padding:6px 12px;font-size:11px;letter-spacing:.6px;border-radius:999px}
+.hero:not(.dh) .hin{padding:16px 4px 0}
+.hero:not(.dh) h1{margin:0 0 8px;line-height:1.12;letter-spacing:-.2px}
+.hero:not(.dh) .hinfo{margin:0 0 14px}
+.hero:not(.dh) .row2{margin-top:8px}
+.hero:not(.dh) .seg{margin:16px 0 4px}}
+.hero.land .art{object-position:center}
+.hero:not(.land) .hban .bg{display:block}
+/* 4) Midnight: normal 2:3 cards; only 16:9 art adjusts itself (wide card, whole picture, no crop) */
+.rail.midr{align-items:start}
+.rail.midr .card:has(.pw.ls) .pw{aspect-ratio:16/9}
+.rail.midr .card .pw.ls .poster{object-fit:cover;object-position:center}
+.rail.midr .card .pw.ls .bgb{display:none}
+.rail.midr:not(.t10r) .card:has(.pw.ls){grid-column:span 2}
+/* hero tag: lighter glass pill instead of solid dark-text blue */
+.hero .tag{background:rgba(30,136,255,.55);color:#fff;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.28);font-size:10.5px;font-weight:800;padding:5px 11px;box-shadow:none;text-shadow:0 1px 4px rgba(0,0,0,.35)}
 </style>
 </head>
 <body>
@@ -1037,7 +1066,7 @@ const railBox=(items,cls,mkf)=>{const r=h("div",{class:"rail"+(cls?" "+cls:"")},
   w.append(mk(-1),mk(1));
   const upd=()=>{w.classList.toggle("at0",r.scrollLeft<8);w.classList.toggle("at1",r.scrollLeft+r.clientWidth>=r.scrollWidth-8)};
   r.addEventListener("scroll",upd,{passive:true});setTimeout(upd,80);return w};
-const top10Box=items=>railBox(items.slice(0,10),"t10r",(i,k)=>h("div",{class:"t10"},h("span",{class:"n"},String(k+1)),card(i)));
+const top10Box=(items,x)=>railBox(items.slice(0,10),"t10r"+(x||""),(i,k)=>h("div",{class:"t10"},h("span",{class:"n"},String(k+1)),card(i)));
 const TAGW="hindi|english|tamil|telugu|malayalam|kannada|bengali|punjabi|urdu|marathi|gujarati|arabic|spanish|french|russian|korean|japanese|chinese|dubbed|dub|subbed|sub|cam|hdcam|hdts|ts|camrip|hdrip|webrip|web-dl|dual audio|multi audio";
 const TAGRE=new RegExp("^(?:"+TAGW+")(?:\\s+(?:dub|sub|audio))?$","i");
 const tagsOf=n=>{const o=[];String(n||"").replace(/\[([^\]]*)\]|\(([^)]*)\)/g,(m,a,b)=>{const t=(a!==undefined?a:b).trim();if(a!==undefined||TAGRE.test(t))o.push(t);return m});return o};
@@ -1052,6 +1081,9 @@ function tabBar(){if(!TABS.length)return null;
 const moreOf=s=>{const m=s.more||{};return{id:String(m.genreTopId||m.rankingId||m.rankId||m.id||m.opId||""),url:m.url||m.jumpUrl||m.path||m.link||"",title:s.section,query:m.query||""}};
 const hasMore=s=>{const m=s.more||{};return!!(m.query||m.genreTopId||m.rankingId||m.rankId||m.id||m.opId||m.url||m.jumpUrl||m.path||m.link)||s.items.length>=9};
 const SECT={};
+const COMINGRE=/coming|upcoming|soon/i;
+const COMING=new Set((()=>{try{return JSON.parse(store.get("jf_coming")||"[]")}catch(e){return[]}})());
+const markComing=items=>{let n=COMING.size;(items||[]).forEach(i=>i&&i.slug&&COMING.add(i.slug));if(COMING.size!==n){try{store.set("jf_coming",JSON.stringify([...COMING].slice(-400)))}catch(e){}}};
 function browsePage(pre){
   const st={tab:"2",classify:"All",country:"All",genre:"All",year:"All",sort:"ForYou"};if(pre==="tv")st.tab="5";if(pre==="anime")st.tab="8";
   const pairs=a=>a.map(v=>[v,v]);
@@ -1075,13 +1107,13 @@ function browsePage(pre){
 function filterBlock(s){const tl=s.tabs.filter(t=>t.query);
   return[h("h2",{class:"sec"},h("span",{class:"st"},cleanT(s.section)),h("button",{class:"see",onclick:()=>go("#/browse")},"Browse all \u2192")),
     h("div",{class:"frail"},tl.map(t=>h("button",{class:"ftile",onclick:()=>go("#/all/"+encodeURIComponent(JSON.stringify({title:t.name,query:t.query})))},t.image?img(t.image):null,h("span",{},t.name))).concat(h("button",{class:"ftile fall",onclick:()=>go("#/browse")},h("span",{},"More ›"))))]}
-function secBlock(s){SEC[s.section]=s.items;SECT[s.section]=s.tabs||[];
+function secBlock(s,land){SEC[s.section]=s.items;SECT[s.section]=s.tabs||[];if(COMINGRE.test(s.section||""))markComing(s.items);
   const head=h("h2",{class:"sec"},h("span",{class:"st"},cleanT(s.section)),hasMore(s)?h("button",{class:"see",onclick:()=>go("#/all/"+encodeURIComponent(JSON.stringify(moreOf(s))))},"See all \u2192"):null),
-    box=h("div",{},isTop(s)?top10Box(s.items):railBox(s.items.slice(0,20))),out=[head];
+    box=h("div",{},isTop(s)?top10Box(s.items,land?" midr":""):railBox(s.items.slice(0,20),land?"midr":"")),out=[head];
   if(s.tabs&&s.tabs.length){const strip=h("div",{class:"cats sub"});
     const pick=async k=>{[...strip.children].forEach((b,j)=>b.classList.toggle("on",j===k));const t=s.tabs[k];let its=t.items;
       if(!its){box.replaceChildren(h("div",{class:"state"},"Loading…"));try{its=(await api("/more?id="+encodeURIComponent(t.id||"")+"&title="+encodeURIComponent(t.name))).items}catch(e){its=[]}}
-      box.replaceChildren(its&&its.length?railBox(its.slice(0,20)):h("div",{class:"state"},"Nothing found."))};
+      box.replaceChildren(its&&its.length?railBox(its.slice(0,20),land?"midr":""):h("div",{class:"state"},"Nothing found."))};
     s.tabs.forEach((t,k)=>strip.append(h("button",{class:"cat"+(k===0?" on":""),onclick:()=>pick(k)},t.name)));out.push(strip)}
   out.push(box);return out}
 
@@ -1093,20 +1125,27 @@ function browseUrl(q,page){try{const u=new URLSearchParams(q),t=BTYPE[u.get("tab
 async function allPage(raw){let m={};try{m=JSON.parse(raw)}catch(e){}
   let page=1,busy=false,done=false,cur={id:m.id||"",url:m.url||"",title:m.title||"",query:m.query||""},gen=0;
   const tabs=SECT[m.title]||[];
-  const grid=h("div",{class:"grid"}),st=h("div",{class:"state"},"Loading…"),btn=h("button",{class:"btn",style:"margin:16px auto;display:none"},"Load more");
+  const grid=h("div",{class:"grid two"}),st=h("div",{class:"state"},"Loading…"),btn=h("button",{class:"btn",style:"margin:16px auto;display:none"},"Load more");
   const strip=tabs.length?h("div",{class:"cats sub"}):null;
   mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),h("h2",{class:"sec"},cleanT(m.title)||"All"),strip,grid,st,btn);
-  const load=async()=>{if(busy||done)return;busy=true;btn.style.display="none";const g=gen;
-    try{const j=await api(cur.query?browseUrl(cur.query,page):"/more?id="+encodeURIComponent(cur.id)+"&url="+encodeURIComponent(cur.url)+"&title="+encodeURIComponent(cur.title)+"&page="+page),it=j.items||[];
-      if(g!==gen){busy=false;return}
-      if(it.length){it.forEach(i=>grid.append(card(i)));page++;st.textContent="";btn.style.display="block"}
-      else{done=true;let fb=cur.items||SEC[cur.title],note="";
-        if(!grid.children.length&&cur.query){try{fb=applyFilter(await pool(),cur.query);note="Matches from MovieBox's home feed. The complete filtered list needs a MovieBox login."}catch(e){}}
+  const STEP=20;let buf=[];
+  const fetchPage=async()=>{const j=await api(cur.query?browseUrl(cur.query,page):"/more?id="+encodeURIComponent(cur.id)+"&url="+encodeURIComponent(cur.url)+"&title="+encodeURIComponent(cur.title)+"&page="+page);return j.items||[]};
+  const load=async()=>{if(busy)return;busy=true;btn.style.display="none";const g=gen;
+    try{
+      /* keep a small buffer; show exactly 10 per tap */
+      while(buf.length<STEP&&!done){const it=await fetchPage();if(g!==gen){busy=false;return}
+        if(it.length){const seen=new Set([...grid.children].map(c=>c.dataset.s));it.forEach(i=>{if(i.slug&&!seen.has(i.slug)&&!buf.some(b=>b.slug===i.slug))buf.push(i)});page++}else done=true}
+      if(COMINGRE.test(cur.title||m.title||""))markComing(buf);
+      buf.splice(0,STEP).forEach(i=>{const c=card(i);c.dataset.s=i.slug||"";grid.append(c)});
+      if(!grid.children.length){let fb=cur.items||SEC[cur.title],note="";
+        if(cur.query){try{fb=applyFilter(await pool(),cur.query);note="Matches from MovieBox's home feed. The complete filtered list needs a MovieBox login."}catch(e){}}
         if(g!==gen){busy=false;return}
-        if(!grid.children.length&&fb&&fb.length){fb.forEach(i=>grid.append(card(i)));st.textContent=note}else st.textContent=grid.children.length?"That's everything.":"The full list for this category is not available."}}
-    catch(e){st.textContent="Failed to load."}busy=false};
+        if(fb&&fb.length){fb.slice(0,40).forEach(i=>grid.append(card(i)));st.textContent=note}else st.textContent="The full list for this category is not available."}
+      else if(buf.length||!done){st.textContent="";btn.style.display="block"}
+      else st.textContent="That's everything."}
+    catch(e){st.textContent="Failed to load.";btn.style.display="block"}busy=false};
   const pick=k=>{
-    const t=k<0?null:tabs[k];gen++;page=1;busy=false;done=false;grid.replaceChildren();st.textContent="Loading…";
+    const t=k<0?null:tabs[k];gen++;page=1;busy=false;done=false;buf=[];grid.replaceChildren();btn.style.display="none";st.textContent="Loading…";
     cur=t?{id:String(t.id||""),url:"",title:t.name,items:t.items,query:t.query||""}:{id:m.id||"",url:m.url||"",title:m.title||"",query:m.query||""};load()};
   if(strip){strip.append(h("button",{class:"cat on",onclick:()=>pick(-1)},"All"));tabs.forEach((t,k)=>strip.append(h("button",{class:"cat",onclick:()=>pick(k)},t.name)));
     [...strip.children].forEach((b,j)=>{const f=b.onclick;b.onclick=()=>{[...strip.children].forEach((x,y)=>x.classList.toggle("on",y===j));f()}})}
@@ -1146,16 +1185,16 @@ async function home(){
   const TK=isTab(CAT);let R;try{R=TK?(HC["tab:"+CAT]||(HC["tab:"+CAT]=await api("/tab/"+CAT))):(HC[TAB]||(HC[TAB]=await api("/home"+(TAB?"?tab="+encodeURIComponent(TAB):""))))}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to connect to the server. Please refresh the page."));return}
   if(!TABS.length&&!TK)TABS=R.tabs||[];const HOME=R.sections||[];
   const ban=(HOME.find(s=>s.section==="Banner")||{items:[]}).items.slice(0,5);
-  const rest=HOME.filter(s=>s.section!=="Banner"&&(s.kind!=="filter"&&s.items&&s.items.length)).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));
+  const rest=HOME.filter(s=>s.section!=="Banner"&&!/free\s*now/i.test(s.section||"")&&(s.kind!=="filter"&&s.items&&s.items.length)).sort((a,b)=>(/short/i.test(a.section)?1:0)-(/short/i.test(b.section)?1:0));
   await meReady;
-  const frag=[catBar()];
+  const frag=[];
   const cont=ME&&!TAB&&CAT==="all"?PROG.filter(p=>p.slug&&p.sid):[];
   if(ban.length&&(CAT==="all"||TK)){const box=h("div",{class:"hero"}),N=ban.length,D=LITE?10000:6000;let i=0,hT=0,sx=0,sy=0;
     const to=k=>{clearTimeout(hT);i=(k+N)%N;draw()};
     const tick=()=>{if(!box.isConnected)return;if(document.hidden){hT=setTimeout(tick,D);return}to(i+1)};
     function draw(){const b=ban[i],cur=i;box.className="hero";
       const art=h("img",{class:"art",src:b.poster_url||"",referrerpolicy:"no-referrer",alt:""});
-      const mk=()=>{if(cur!==i||!art.naturalWidth)return;if(art.naturalWidth>art.naturalHeight*1.2){box.classList.add("land");const hb=art.parentNode,r=Math.min(2.6,Math.max(1.2,art.naturalWidth/art.naturalHeight));if(hb){hb.style.aspectRatio=r.toFixed(4);hb.style.maxHeight="none";hb.style.width="min(100%,"+(72*r).toFixed(1)+"vh)";hb.style.marginLeft=hb.style.marginRight="auto"}}};
+      const mk=()=>{if(cur!==i||!art.naturalWidth)return;if(art.naturalWidth>art.naturalHeight*1.2)box.classList.add("land")};
       art.onload=mk;art.onerror=()=>art.remove();if(art.complete&&art.naturalWidth)mk();
       const gl=String(b.genre||"").split(",").map(x=>x.trim()).filter(Boolean).slice(0,6),kl=typeof kindOf==="function"?(KINDL[kindOf(b,"")]||"Movie"):"Movie";
       const lg=tagsOf(b.name)[0]||"",info=h("div",{class:"hinfo"});
@@ -1173,6 +1212,7 @@ async function home(){
     box.addEventListener("touchstart",e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY},{passive:true});
     box.addEventListener("touchend",e=>{if(N<2)return;const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.5)to(i+(dx<0?1:-1))},{passive:true});
     draw();frag.push(box)}
+  frag.push(catBar());
   const cutAt=frag.length;
   if(cont.length){const items=cont.slice(0,15);
     const rw=railBox(items.map(p=>({slug:p.slug,subject_id:p.sid,name:p.name+(p.season||p.episode?" · S"+p.season+" E"+p.episode:""),poster_url:p.poster_url})));
@@ -1289,13 +1329,14 @@ async function show(slug,id){
   $app.replaceChildren(h("div",{class:"hero sk"}));let d;
   try{d=await getDet(slug)}catch(e){$app.replaceChildren(h("div",{class:"state"},"Unable to load details."));return}
   await meReady;const last=PROG.find(p=>String(p.sid)===String(id));loadSeen(id);
+  const soon=COMING.has(slug);
   const play=(se,ep)=>go("#/watch/"+id+"/"+slug+"/"+se+"/"+ep),first=d.series?d.seasons[0]:{se:0};
   const inList=()=>favs.some(f=>f.slug===slug),item={slug,subject_id:id,name:d.title,poster_url:d.poster,rating:d.rating};
   const favTxt=()=>inList()?"\u2713 In My List":"+ My List";
   const fb=h("button",{class:"glass fav"+(inList()?" on":""),onclick:()=>{toggleFav(item);fb.textContent=favTxt();fb.classList.toggle("on",inList())}},favTxt());
   /* poster card: the whole picture, no crop, rounded corners; name and details sit below it (never on top of the picture) */
   const ban=h("div",{class:"hban dpb"}),pic=h("img",{class:"dpic",alt:"",referrerpolicy:"no-referrer",src:d.poster||""});
-  pic.onload=()=>{if(pic.naturalWidth)ban.style.aspectRatio=Math.min(2.4,Math.max(.75,pic.naturalWidth/pic.naturalHeight)).toFixed(4)};pic.onerror=()=>pic.remove();
+  pic.onload=()=>{if(pic.naturalWidth){const r=pic.naturalWidth/pic.naturalHeight;ban.style.aspectRatio=Math.min(2.4,Math.max(.7,r)).toFixed(4);ban.classList.toggle("por",r<1)}};pic.onerror=()=>pic.remove();
   ban.append(pic);if(pic.complete&&pic.naturalWidth)pic.onload();
   const info=[d.rating&&!isNaN(+d.rating)?h("span",{class:"hr"},"\u2605 "+(+d.rating).toFixed(1)):null,h("span",{},d.series?"Series":"Movie"),d.series&&d.seasons.length>1?h("span",{},d.seasons.length+" seasons"):null,d.year?h("span",{},d.year):null,d.tags&&d.tags[0]?h("span",{},d.tags[0]):null].filter(Boolean);
   const hd=h("p",{class:"hd"},d.desc||"No description available."),more=d.desc&&d.desc.length>130?h("button",{class:"hmore",onclick:()=>{const o=hd.classList.toggle("open");more.textContent=o?"Less":"More"}},"More"):null;
@@ -1305,8 +1346,9 @@ async function show(slug,id){
       h("div",{class:"hinfo"},info),
       d.genres.length?h("div",{class:"hg"},d.genres.slice(0,8).map(g=>h("span",{},g))):null,
       hd,more,
-      h("div",{class:"row2"},h("button",{class:"pri",onclick:()=>last&&last.slug===slug?play(last.season,last.episode):play(first.se,d.series?1:0)},last&&last.slug===slug?(d.series?"\u25b6 Continue S"+last.season+" E"+last.episode:"\u25b6 Resume"):"\u25b6 Watch now"),fb)))),
-    d.series?epGrid(d.seasons,0,0,play):null)}
+      soon?h("div",{class:"soonnote"},"Coming soon \u2014 add it to My List and watch it when it arrives."):null,
+      h("div",{class:"row2"},soon?null:h("button",{class:"pri",onclick:()=>last&&last.slug===slug?play(last.season,last.episode):play(first.se,d.series?1:0)},last&&last.slug===slug?(d.series?"\u25b6 Continue S"+last.season+" E"+last.episode:"\u25b6 Resume"):"\u25b6 Watch now"),fb)))),
+    d.series&&!soon?epGrid(d.seasons,0,0,play):null)}
 
 /* ---------- watch ---------- */
 async function watch(id,slug,se,ep){
@@ -1415,7 +1457,7 @@ async function midnightPage(){
   mount(h("h2",{class:"sec"},"Midnight (18+)"),h("div",{class:"state"},"Loading…"));
   let R;try{R=await api("/midnight")}catch(e){mount(h("h2",{class:"sec"},"Midnight (18+)"),h("div",{class:"state"},"Midnight is not available right now."));return}
   const secs=(R.sections||[]).filter(s=>s.section!=="Banner"&&s.items&&s.items.length);
-  mount(h("h2",{class:"sec"},"Midnight (18+)"),secs.length?secs.map(s=>secBlock(s)).flat():h("div",{class:"state"},"Nothing found."))}
+  mount(h("h2",{class:"sec"},"Midnight (18+)"),secs.length?secs.map(s=>secBlock(s,true)).flat():h("div",{class:"state"},"Nothing found."))}
 function route(){if(window.__splashHide)setTimeout(window.__splashHide,300);kill();$app.classList.remove("w");const p=location.hash.replace(/^#\/?/,"").split("/").filter(Boolean).map(decodeURIComponent);drawNav();scrollTo({top:0,left:0,behavior:"instant"});
   if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="account")return accountPage();if(p[0]==="midnight")return midnightPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
 addEventListener("hashchange",route);route();
