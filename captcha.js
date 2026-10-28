@@ -149,8 +149,8 @@ function addCss() {
     + ".captx{width:100%;max-width:340px;padding:6px 14px;display:flex;flex-direction:column;gap:12px;user-select:text;-webkit-user-select:text}"
     + ".captx img{width:100%;height:auto;border-radius:12px;display:block;background:#eee;pointer-events:none}"
     + ".captx input{width:100%;box-sizing:border-box;font:700 22px/1 system-ui,sans-serif;letter-spacing:5px;text-align:center;text-transform:uppercase;padding:14px 10px;border-radius:14px;border:2px solid var(--line,#3a3442);background:rgba(255,255,255,.06);color:inherit;outline:0}"
-    + ".captx input:focus{border-color:#ff5a2c}.captr{display:flex;gap:10px}.captr button{flex:1;height:48px;border-radius:14px;font:700 15px system-ui,sans-serif;border:0}"
-    + ".captb{background:#ff5a2c;color:#fff}.captb2{background:rgba(255,255,255,.1);color:inherit}.captr button:disabled{opacity:.5}"
+    + ".captx input:focus{border-color:var(--accent,#ff5a2c)}.captr{display:flex;gap:10px}.captr button{flex:1;height:48px;border-radius:14px;font:700 15px system-ui,sans-serif;border:0}"
+    + ".captb{background:var(--accent,#ff5a2c);color:#fff}.captb2{background:rgba(255,255,255,.1);color:inherit}.captr button:disabled{opacity:.5}"
     + ".capm{height:34px;flex:none;text-align:center;font-size:13px;line-height:34px;opacity:.85;padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}";
   document.head.append(s);
 }
@@ -330,7 +330,7 @@ function modal(o) {
     ctl = run(card, Object.assign({}, o, { onPass: (tok, r) => setTimeout(() => close({ token: tok, ttl: r.ttl }), 650), onClose: () => close(null) }));
   });
 }
-const api = { ver: 12, modal, run, COLS, closeAll() { if (openModal) openModal(null); } };
+const api = { ver: 13, modal, run, COLS, closeAll() { if (openModal) openModal(null); } };
 root.CapGame = api;
 const math = { CapTapper, CAP, capBallPos, capBallColor, capSimShot, capAim, CapShooter, capSha256, capPowOk, capSolvePow, capZeroBits };
 root.CapMath = math;

@@ -288,6 +288,11 @@ html.tv video:focus{outline:none}
 html.tv .player:focus-within{outline:5px solid var(--accent);outline-offset:4px}
 html.tv .nav button:focus,html.tv .logo:focus{border-radius:12px}
 .tvosd{position:absolute;left:50%;top:14px;margin-left:-110px;min-width:220px;text-align:center;background:rgba(0,0,0,.8);color:#fff;padding:8px 18px;border-radius:999px;font-weight:700;font-size:16px;z-index:5;pointer-events:none;white-space:nowrap}
+/* ===== portrait video (shorts): a tall player instead of a wide box with black bars; fullscreen fills the screen, no landscape lock ===== */
+.player.tall{aspect-ratio:9/16;width:min(100%,calc(78vh*9/16));max-height:78vh;margin-left:auto;margin-right:auto}
+.player.tall video{object-fit:contain}
+.player.tall.fs,.player.tall:fullscreen,.player.tall:-webkit-full-screen{width:100%;height:100%;max-width:none;max-height:none;aspect-ratio:auto;border-radius:0}
+@media (orientation:landscape) and (max-height:520px){.player.tall{max-height:calc(100vh - 64px);width:min(100%,calc((100vh - 64px)*9/16))}}
 .player:-webkit-full-screen{width:100%;height:100%;padding:0;border-radius:0}
 .player:fullscreen{width:100%;height:100%;padding:0;border-radius:0}
 .player:-webkit-full-screen video{width:100%;height:100%}
@@ -1089,7 +1094,7 @@ let CAPT="",CAPX=0,CAPP=null;
 try{const c=JSON.parse(store.get("jf_cap")||"null");if(c&&c.t&&c.x>Date.now()){CAPT=c.t;CAPX=c.x}}catch(e){}
 function capToken(){if(CAPT&&CAPX>Date.now())return CAPT;CAPT="";return ""}
 function capForget(){CAPT="";CAPX=0;store.del("jf_cap")}
-function loadCap(){return new Promise((ok,no)=>{if(window.CapGame&&window.CapGame.ver===12)return ok();const sc=document.createElement("script");sc.src="/captcha.js?v=12";sc.onload=ok;sc.onerror=()=>{sc.remove();no(new Error("captcha script"))};document.head.append(sc)})}
+function loadCap(){return new Promise((ok,no)=>{if(window.CapGame&&window.CapGame.ver===13)return ok();const sc=document.createElement("script");sc.src="/captcha.js?v=13";sc.onload=ok;sc.onerror=()=>{sc.remove();no(new Error("captcha script"))};document.head.append(sc)})}
 function solveCaptcha(){   /* -> Promise<true when passed>. One at a time: everyone who asks waits for the same one. */
   if(CAPP)return CAPP;
   const p=(async()=>{try{await loadCap();const r=await CapGame.modal({headers:{"X-Device":DID}});
@@ -1404,7 +1409,7 @@ async function getDet(slug){if(DET[slug])return DET[slug];const d=await api("/de
   const sh7=s.subjectType===7;   /* shorts are episodic mini-dramas: they need an episode list too */
   let seasons=(r.seasons||[]).filter(x=>sh7?x.se>=0:x.se>0).map(x=>({se:+x.se,n:+(x.maxEp||x.allEp||0)||12}));
   const series=s.subjectType===2||sh7||seasons.length>0;if(series&&!seasons.length)seasons=[{se:1,n:12}];
-  return DET[slug]={title:cleanName(s.title||slug),tags:tagsOf(s.title),poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,seasons,dubs:((d.data&&d.data.dubs)||[]).filter(x=>x.subjectId&&x.detailPath).map(x=>({id:x.subjectId,slug:x.detailPath,lang:x.lanName||x.lanCode||"Dub"}))}}
+  return DET[slug]={title:cleanName(s.title||slug),tags:tagsOf(s.title),poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,short:sh7,seasons,dubs:((d.data&&d.data.dubs)||[]).filter(x=>x.subjectId&&x.detailPath).map(x=>({id:x.subjectId,slug:x.detailPath,lang:x.lanName||x.lanCode||"Dub"}))}}
 function epGrid(seasons,curSe,curEp,pick,slug){const pp=slug?epProgAll(slug):{};let sh=curSe||seasons[0].se;const tabs=h("div",{class:"chips"}),grid=h("div",{class:"eps"});
   const paint=()=>{tabs.replaceChildren(...(seasons.length>1?seasons.map(s=>h("button",{class:"chip","aria-pressed":String(s.se===sh),onclick:()=>{sh=s.se;paint()}},"Season "+s.se)):[]));
     const n=(seasons.find(s=>s.se===sh)||{n:0}).n;grid.replaceChildren(...Array.from({length:n},(_,k)=>h("button",{"data-k":sh+":"+(k+1),class:"ep"+(sh===curSe&&k+1===curEp?" cur":"")+(SEENSET.has(sh+":"+(k+1))?" seen":""),onclick:()=>pick(sh,k+1)},h("span",{class:"en2"},String(k+1)),h("span",{class:"epm"},h("i")),h("small",{class:"epp"}))));
@@ -1540,7 +1545,7 @@ function playerUI(box,video,C){
     else used=false;
     if(used){e.preventDefault();poke()}};
   document.addEventListener("keydown",kd);
-  const fsc=()=>{if(!box.isConnected)return;const on=fse()===box;box.classList.toggle("fs",on);swap(fsB,on?"xfs":"fs");try{on?screen.orientation.lock("landscape").catch(()=>{}):screen.orientation.unlock()}catch(e){}};
+  const fsc=()=>{if(!box.isConnected)return;const on=fse()===box;box.classList.toggle("fs",on);swap(fsB,on?"xfs":"fs");try{on?screen.orientation.lock(box.classList.contains("tall")?"portrait":"landscape").catch(()=>{}):screen.orientation.unlock()}catch(e){}};
   document.addEventListener("fullscreenchange",fsc);document.addEventListener("webkitfullscreenchange",fsc);
   const lsq=window.matchMedia?matchMedia("(orientation:landscape) and (max-height:520px)"):null,lsc=()=>{if(box.isConnected)box.classList.toggle("ls",!!(lsq&&lsq.matches))};lsc();if(lsq){if(lsq.addEventListener)lsq.addEventListener("change",lsc);else if(lsq.addListener)lsq.addListener(lsc)}
   function menu(sel){mn.replaceChildren();
@@ -1565,7 +1570,7 @@ async function watch(id,slug,se,ep){
   $app.classList.add("w");
   se=+se;ep=+ep;let d;try{d=await getDet(slug)}catch(e){d={title:slug,series:se>0,seasons:[],dubs:[]}}
   const video=h("video",{playsinline:true,autoplay:true,preload:"auto"}),buf=h("div",{class:"buf"},"Buffering…"),
-    msg=h("div",{class:"msg"},"Finding stream… this may take 10–20 seconds."),box=h("div",{class:"player"},video,buf,msg);dtap(box,video);
+    msg=h("div",{class:"msg"},"Finding stream… this may take 10–20 seconds."),box=h("div",{class:"player"},video,buf,msg);dtap(box,video);if(d.short)box.classList.add("tall");video.addEventListener("loadedmetadata",()=>{if(video.videoWidth)box.classList.toggle("tall",video.videoWidth/(video.videoHeight||1)<.9)});
   const title=d.title+(d.series?" · S"+se+" E"+ep:"");
   let next=null;if(d.series){const s=d.seasons.find(x=>x.se===se);if(s&&ep<s.n)next=[se,ep+1];else{const ns=d.seasons.find(x=>x.se>se);if(ns)next=[ns.se,1]}}
   const nUrl=n=>"#/watch/"+id+"/"+slug+"/"+n[0]+"/"+n[1];
@@ -1598,12 +1603,12 @@ async function watch(id,slug,se,ep){
   let resume=(sp&&sp.pos>10&&sp.dur-sp.pos>30?sp.pos:0)||+store.get(key)||0,cur=0,qSel=-1;
   const saveProg=ended=>{if(!ME||!video.duration)return;const r={sid:String(id),season:+se||0,episode:+ep||0,pos:ended?video.duration:video.currentTime,dur:video.duration,slug,name:d.title,poster_url:d.poster,rating:d.rating};
     api("/api/progress",r).then(()=>{const i=PROG.findIndex(x=>String(x.sid)===String(id));if(i>=0)PROG.splice(i,1);PROG.unshift(r);if(ended){SEENSET.add((+se||0)+":"+(+ep||0));applySeen()}}).catch(()=>{})};const mark=ended=>{if(!video.duration||!isFinite(video.duration))return;const pct=epProgSet(slug,+se||0,+ep||0,ended?video.duration:video.currentTime,video.duration,ended),bx=document.querySelector('.eps .ep[data-k="'+(+se||0)+":"+(+ep||0)+'"]');if(bx)setEpBox(bx,pct)};const tried=new Set();
-  dlb.onclick=async()=>{const x=src[cur];if(!x)return;let raw=new URL(x.url,location.href).searchParams.get("u")||"";
+  dlb.onclick=async()=>{const x=src[cur];if(!x)return;const xu=new URL(x.url,location.href);let raw=xu.searchParams.get("u")||"",tk=xu.searchParams.get("t")||"";
     if(x.kind==="hls"&&hls&&hls.levels.length>1){const k=qSel>=0?qSel:hls.levels.reduce((b,l,i,a)=>l.height>a[b].height?i:b,0),L=hls.levels[k],lu=L&&(L.uri||(L.url&&L.url[0]));
-      if(lu){const q=new URL(lu,location.href).searchParams.get("u");if(q)raw=q}}
+      if(lu){const lq=new URL(lu,location.href),q=lq.searchParams.get("u");if(q){raw=q;tk=lq.searchParams.get("t")||tk}}}
     const nm=(title+(x.kind==="hls"?"":" "+x.label)).replace(/[^\w\- ]+/g,"").trim().replace(/ +/g,"_")||"video";
-    const dl="/dl?u="+encodeURIComponent(raw)+"&name="+encodeURIComponent(nm);
     dlb.disabled=true;dlMsg.textContent="Checking…";
+    let dl;try{dl=(await api("/api/dltok",{u:raw,t:tk,name:nm})).url}catch(e){dlMsg.textContent=e.login?"Please sign in to download.":(e.message||"Download is not available.");if(e.login)authModal();dlb.disabled=false;return}
     try{const r=await fetch(dl+"&check=1"),j=await r.json().catch(()=>({}));if(!r.ok||!j.ok)throw new Error(j.error||"Download is not available for this stream.");
       const a=h("a",{href:dl});document.body.append(a);a.click();setTimeout(()=>a.remove(),1000);
       dlMsg.textContent="Download started. Check your browser's downloads. The file will play in VLC or MX Player."}
