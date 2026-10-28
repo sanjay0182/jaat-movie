@@ -762,6 +762,7 @@ def _pick_worker(c):
     A viewer always gets the same one (hash of device id / IP), so the load is split evenly."""
     import hashlib
     ws = [w.strip().rstrip("/") for w in os.environ.get("VIDEO_WORKER", "").split(",") if w.strip()]
+    ws = [w if w.lower().startswith(("http://", "https://")) else "https://" + w.lstrip("/") for w in ws]   # env without https:// -> add it
     if not ws:
         return ""
     k = (c.get("dev") or c.get("ip") or "") if c else ""
