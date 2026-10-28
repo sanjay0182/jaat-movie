@@ -7,16 +7,37 @@ JaatFlix API (MovieBox backend)
   (direct browser playback used to stall at 0:00 for this reason)
 - Optional: env IN_PROXY=http://user:pass@indian-proxy:port routes all calls through an Indian IP
 """
-import asyncio, json, os, re, time
+import asyncio, hmac, json, os, re, time
 from urllib.parse import quote, urljoin
 import httpx
 import accounts
+import protect
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 app = FastAPI(title="JaatFlix API", version="3.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*", "X-Device", "X-VIP-Key"])
+protect.start()
+
+_DEBUG = ("/lab", "/shape", "/diag", "/discover", "/peek", "/raw", "/probe")   # developer tools: admin key only
+
+
+@app.middleware("http")
+async def _protect_mw(request: Request, call_next):
+    path = request.url.path
+    if path.startswith(_DEBUG):
+        k = request.headers.get("x-admin-key") or request.query_params.get("key") or ""
+        ak = os.getenv("ADMIN_KEY", "")
+        if not ak or not hmac.compare_digest(k.encode(), ak.encode()):
+            return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        r = protect.middleware_check(request)
+    except Exception:
+        r = None
+    if r is not None:
+        return JSONResponse(r[1], status_code=r[0])
+    return await call_next(request)
 
 API = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
 UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
@@ -655,7 +676,8 @@ async def search(q: str = Query(..., min_length=1), page: int = 1):
 
 
 @app.get("/detail/{slug}")
-async def detail(slug: str):
+async def detail(request: Request, slug: str):
+    protect.after_detail(request, slug)
     urls = [f"{API}/detail?detailPath={slug}", f"{API}/detail?detailPath={slug}&host={HOST}"]
     d = await call(urls[0])
     if not (d.get("data") or {}).get("subject"):  # retry with a fresh token, then with the host parameter
@@ -667,12 +689,18 @@ async def detail(slug: str):
     return d
 
 
-def _px(u):
-    return "/p?u=" + quote(u, safe="")
+def _px(u, c, sess=None):
+    return protect.link(u, c, sess)
 
 
 @app.get("/api/stream/{subject_id}")
-async def stream(subject_id: str, detail_path: str, se: int = 0, ep: int = 0):
+async def stream(request: Request, subject_id: str, detail_path: str, se: int = 0, ep: int = 0):
+    c = protect.ctx(request)
+    user = await _me(request)
+    refuse = protect.stream_gate(request, user, subject_id, detail_path)
+    if refuse is not None:
+        return JSONResponse(refuse[1], status_code=refuse[0])
+    sess = protect.new_session(c)
     dd = await call(f"{API}/media-player/get-domain")
     dom = (dd.get("data") if isinstance(dd.get("data"), str) else "") or "https://netfilm.world"
     dom = dom.rstrip("/")
@@ -688,11 +716,11 @@ async def stream(subject_id: str, detail_path: str, se: int = 0, ep: int = 0):
     for x in pd.get("hls") or []:  # hls items can be dicts or strings
         u = x.get("url") if isinstance(x, dict) else x
         if u:
-            src.append({"kind": "hls", "label": "Auto (HLS)", "res": 9999, "url": _px(u)})
+            src.append({"kind": "hls", "label": "Auto (HLS)", "res": 9999, "url": _px(u, c, sess)})
     for s in pd.get("streams") or []:
         if s.get("url"):
             res = int(s.get("resolutions") or 0)
-            src.append({"kind": "hls" if ".m3u8" in s["url"] else "mp4", "label": f"{res}p", "res": res, "url": _px(s["url"])})
+            src.append({"kind": "hls" if ".m3u8" in s["url"] else "mp4", "label": f"{res}p", "res": res, "url": _px(s["url"], c, sess)})
     src.sort(key=lambda x: -x["res"])
     st = (pd.get("streams") or pd.get("dash") or [None])[0] or {}
     cap = {"id": st.get("id"), "fmt": st.get("format") or "MP4"}
@@ -700,7 +728,12 @@ async def stream(subject_id: str, detail_path: str, se: int = 0, ep: int = 0):
 
 
 @app.get("/p")
-async def proxy(request: Request, u: str):
+async def proxy(request: Request, u: str, t: str = ""):
+    pc = protect.ctx(request)
+    if not pc["vip"]:
+        ok, why = protect.verify(pc, u, t, "s")
+        if not ok or not protect.safe_url(u):
+            return Response("forbidden", status_code=403, headers={"Cache-Control": "no-store"})
     h = {"User-Agent": UA, "Referer": _ref["v"], "Origin": _ref["v"].rstrip("/"), "Accept": "*/*"}
     if request.headers.get("range"):
         h["Range"] = request.headers["range"]
@@ -715,7 +748,7 @@ async def proxy(request: Request, u: str):
         text = (await r.aread()).decode("utf-8", "ignore")
         base = str(r.url)
         await r.aclose(); await c.aclose()
-        fix = lambda x: _px(urljoin(base, x.strip()))
+        fix = lambda x: protect.link_like(urljoin(base, x.strip()), pc, t)
         lines = []
         for ln in text.splitlines():
             if ln.startswith("#"):
@@ -736,18 +769,24 @@ async def proxy(request: Request, u: str):
 
 
 @app.get("/api/captions/{subject_id}")
-async def captions(subject_id: str, detail_path: str, id: str = "", fmt: str = "MP4"):
+async def captions(request: Request, subject_id: str, detail_path: str, id: str = "", fmt: str = "MP4"):
+    c = protect.ctx(request)
     if not id:
         return {"captions": []}
     d = await call(f"{API}/subject/caption?format={fmt}&id={id}&subjectId={subject_id}&detailPath={detail_path}")
     cd = d.get("data")
     caps = (cd.get("captions") if isinstance(cd, dict) else cd) or []
-    return {"captions": [{"lang": c.get("lanName") or c.get("lan") or "Subtitle", "url": "/sub?u=" + quote(c["url"], safe="")}
-                         for c in caps if isinstance(c, dict) and c.get("url")]}
+    return {"captions": [{"lang": cap.get("lanName") or cap.get("lan") or "Subtitle", "url": protect.link(cap["url"], c, None, "s", "/sub")}
+                         for cap in caps if isinstance(cap, dict) and cap.get("url")]}
 
 
 @app.get("/sub")
-async def sub(u: str):
+async def sub(request: Request, u: str, t: str = ""):
+    pc = protect.ctx(request)
+    if not pc["vip"]:
+        ok, why = protect.verify(pc, u, t, "s")
+        if not ok or not protect.safe_url(u):
+            return Response("forbidden", status_code=403)
     """Fetch subtitles and convert SRT -> WebVTT (the browser <track> element only understands VTT)."""
     async with httpx.AsyncClient(follow_redirects=True, timeout=30, **CK) as c:
         try:
@@ -802,7 +841,7 @@ async def _hls_plan(c, u):
     return segs, init, None
 
 
-async def _dl_hls(u, name, check):
+async def _dl_hls(u, name, check, done=None):
     async with httpx.AsyncClient(follow_redirects=True, timeout=30, **CK) as c:
         try:
             segs, init, err = await _hls_plan(c, u)
@@ -815,41 +854,67 @@ async def _dl_hls(u, name, check):
     ext = ".mp4" if init else ".ts"
 
     async def gen():
-        async with httpx.AsyncClient(follow_redirects=True, timeout=40, **CK) as c:
-            for s in ([init] if init else []) + segs:
-                for _ in range(3):
-                    try:
-                        r = await c.get(s, headers=_dh())
-                        if r.status_code == 200:
-                            yield r.content
-                            break
-                    except Exception:
-                        pass
-                    await asyncio.sleep(1)
-                else:
-                    return  # segment failed 3 times: stop the download here
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=40, **CK) as c:
+                for s in ([init] if init else []) + segs:
+                    for _ in range(3):
+                        try:
+                            r = await c.get(s, headers=_dh())
+                            if r.status_code == 200:
+                                yield r.content
+                                break
+                        except Exception:
+                            pass
+                        await asyncio.sleep(1)
+                    else:
+                        return  # segment failed 3 times: stop the download here
+        finally:
+            if done:
+                done()
     return StreamingResponse(gen(), media_type="application/octet-stream",
                              headers={"Content-Disposition": f'attachment; filename="{_fname(name, ext)}"'})
 
 
 @app.get("/dl")
-async def download(u: str, name: str = "video", check: int = 0):
+async def download(request: Request, u: str, name: str = "video", check: int = 0, t: str = ""):
     if not u.startswith("http"):
         return JSONResponse({"ok": False, "error": "Invalid link"}, status_code=400)
+    pc = protect.ctx(request)
+    if not pc["vip"]:
+        ok, why = protect.verify(pc, u, t, "d")
+        if not ok or not protect.safe_url(u):
+            return JSONResponse({"ok": False, "error": "This download link has expired. Please press Download again."}, status_code=403)
+    did = None
+    if not check:
+        did, n = protect.dl_begin(pc["ip"])
+        if n > protect.guard.DL_MAX and not pc["vip"] and protect.guard.violation("dl_many", pc["ip"], "%d downloads at once" % n, dev=pc["dev"]):
+            protect.dl_end(pc["ip"], did)
+            return JSONResponse({"ok": False, "error": "Too many downloads at the same time. Please wait for one to finish."}, status_code=429)
+    _done = (lambda: protect.dl_end(pc["ip"], did)) if did else None
     if ".m3u8" in u.split("?")[0].lower():
-        return await _dl_hls(u, name, check)
+        r = await _dl_hls(u, name, check, _done)
+        if _done and not isinstance(r, StreamingResponse):
+            _done()
+        return r
     c = httpx.AsyncClient(follow_redirects=True, timeout=30, **CK)
     try:
         r = await c.send(c.build_request("GET", u, headers=_dh()), stream=True)
     except Exception as e:
         await c.aclose()
+        if _done:
+            _done()
         return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
     ct = r.headers.get("content-type", "").lower()
     if r.status_code != 200 or "mpegurl" in ct:
         code = r.status_code
         await r.aclose(); await c.aclose()
         if "mpegurl" in ct:
-            return await _dl_hls(u, name, check)
+            rr = await _dl_hls(u, name, check, _done)
+            if _done and not isinstance(rr, StreamingResponse):
+                _done()
+            return rr
+        if _done:
+            _done()
         return JSONResponse({"ok": False, "error": f"Server returned {code}"}, status_code=502)
     if check:
         await r.aclose(); await c.aclose()
@@ -864,7 +929,26 @@ async def download(u: str, name: str = "video", check: int = 0):
                 yield chunk
         finally:
             await r.aclose(); await c.aclose()
+            if _done:
+                _done()
     return StreamingResponse(gen(), headers=hd)
+
+
+@app.post("/api/dltok")
+async def api_dltok(request: Request):
+    """Download ticket: only for a signed-in user, only for a url this page was given (its stream link proves that)."""
+    b = await _body(request)
+    u, t = str(b.get("u", "")), str(b.get("t", ""))
+    user = await _me(request)
+    if not user:
+        return JSONResponse({"error": "Please sign in to download.", "login": True}, status_code=401)
+    pc = protect.ctx(request)
+    if not pc["vip"]:
+        ok, why = protect.verify(pc, u, t, "s")
+        if not ok or not protect.safe_url(u):
+            return JSONResponse({"error": "This video link has expired. Please reload the video."}, status_code=403)
+    nm = str(b.get("name", "video"))[:120]
+    return {"url": protect.link(u, pc, None, "d", "/dl") + "&name=" + quote(nm, safe="")}
 
 
 # ===================== ACCOUNTS (JaatFlix's own database) =====================
@@ -896,7 +980,11 @@ def _err(msg, code=400):
 @app.post("/api/signup")
 async def api_signup(request: Request):
     b = await _body(request)
+    g = protect.login_gate(request, str(b.get("username", "")))
+    if g:
+        return JSONResponse(g[1], status_code=g[0])
     tok, err = await asyncio.to_thread(accounts.signup, str(b.get("username", "")).strip(), str(b.get("password", "")))
+    protect.login_note(request, str(b.get("username", "")), not err)
     if err:
         return _err(err)
     return {"token": tok, "user": await asyncio.to_thread(accounts.user_for, tok)}
@@ -905,7 +993,11 @@ async def api_signup(request: Request):
 @app.post("/api/login")
 async def api_login(request: Request):
     b = await _body(request)
+    g = protect.login_gate(request, str(b.get("username", "")))
+    if g:
+        return JSONResponse(g[1], status_code=g[0])
     tok, err = await asyncio.to_thread(accounts.login, str(b.get("username", "")).strip(), str(b.get("password", "")))
+    protect.login_note(request, str(b.get("username", "")), not err)
     if err:
         return _err(err)
     return {"token": tok, "user": await asyncio.to_thread(accounts.user_for, tok)}
@@ -999,6 +1091,9 @@ async def api_admin(action: str, request: Request):
         return _err("Invalid admin key.", 403)
     _admin_fails.pop(ip, None)
     b = await _body(request)
+    pr = await asyncio.to_thread(protect.admin_action, action, b, request)
+    if pr is not None:
+        return pr
     if action == "stats":
         return await asyncio.to_thread(accounts.admin_stats)
     if action == "password":
