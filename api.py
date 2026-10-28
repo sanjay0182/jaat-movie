@@ -18,19 +18,74 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 app = FastAPI(title="JaatFlix API", version="3.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*", "X-Device", "X-VIP-Key", "X-Captcha", "X-Admin-Key"])
+app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()], allow_methods=["*"], allow_headers=["*", "X-Device", "X-VIP-Key", "X-Captcha", "X-Admin-Key"])
 protect.start()
 
 _DEBUG = ("/lab", "/shape", "/diag", "/discover", "/peek", "/raw", "/probe")   # developer tools: admin key only
+
+
+# ---- anti-leak: nothing from MovieBox (hosts, raw errors, image CDN) may reach the browser; every byte goes through this server ----
+_IMG_EXT = re.compile(r"\.(jpe?g|png|webp|avif|gif|bmp)(\?|#|$)", re.I)
+_IMG_KEYS = {"cover", "image", "avatar", "stills", "thumbnail", "poster", "poster_url", "banner", "icon", "logo", "backdrop", "stillPath"}
+_UP_HOST = re.compile(r"(moviebox|aoneroom|netfilm|hakunaymatata|mbcdn|movieboxpro|h5-api)", re.I)
+_DROP_KEYS = {"_debug", "_domain", "tried", "via", "_http", "_body", "_err"}
+_SKIP_CLEAN = ("/p", "/sub", "/dl", "/img", "/lab", "/shape", "/diag", "/discover", "/peek", "/raw", "/probe")
+
+
+def _pimg(u):
+    """Signed same-site link for an upstream picture (served by /img, cached)."""
+    return "/img?u=%s&t=%s" % (quote(u, safe=""), protect._sig("img", u))
+
+
+def _clean(o, key=""):
+    if isinstance(o, dict):
+        return {k: _clean(v, key if (k == "url" and key in _IMG_KEYS) else k) for k, v in o.items() if k not in _DROP_KEYS}
+    if isinstance(o, list):
+        return [_clean(v, key) for v in o]
+    if isinstance(o, str) and o[:4].lower() == "http":
+        if _IMG_EXT.search(o) or key in _IMG_KEYS:
+            return _pimg(o) if protect.safe_url(o) else ""
+        if _UP_HOST.search(o):
+            return ""
+    return o
+
+
+def _is_admin(request):
+    k = request.headers.get("x-admin-key") or request.query_params.get("key") or ""
+    ak = os.getenv("ADMIN_KEY", "")
+    return bool(ak) and hmac.compare_digest(k.encode(), ak.encode())
+
+
+_IMGC = {}   # tiny in-memory picture cache: url -> (time, bytes, content-type)
+
+
+@app.get("/img")
+async def img(u: str, t: str = ""):
+    if not t or not hmac.compare_digest(t, protect._sig("img", u)) or not protect.safe_url(u):
+        return Response("not found", status_code=404, headers={"Cache-Control": "no-store"})
+    hit = _IMGC.get(u)
+    if hit and time.time() - hit[0] < 21600:
+        return Response(hit[1], media_type=hit[2], headers={"Cache-Control": "public, max-age=604800, immutable"})
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20, **CK) as c:
+            r = await c.get(u, headers={"User-Agent": UA, "Referer": _ref["v"], "Accept": "image/*,*/*;q=0.8"})
+    except Exception:
+        return Response("bad gateway", status_code=502, headers={"Cache-Control": "no-store"})
+    ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
+    if r.status_code != 200 or not ct.startswith("image/") or len(r.content) > 8_000_000:
+        return Response("not found", status_code=404, headers={"Cache-Control": "no-store"})
+    if len(_IMGC) > 400:
+        for k_ in sorted(_IMGC, key=lambda x: _IMGC[x][0])[:100]:
+            _IMGC.pop(k_, None)
+    _IMGC[u] = (time.time(), r.content, ct)
+    return Response(r.content, media_type=ct, headers={"Cache-Control": "public, max-age=604800, immutable"})
 
 
 @app.middleware("http")
 async def _protect_mw(request: Request, call_next):
     path = request.url.path
     if path.startswith(_DEBUG):
-        k = request.headers.get("x-admin-key") or request.query_params.get("key") or ""
-        ak = os.getenv("ADMIN_KEY", "")
-        if not ak or not hmac.compare_digest(k.encode(), ak.encode()):
+        if not _is_admin(request):
             return JSONResponse({"error": "not found"}, status_code=404)
     try:
         r = protect.middleware_check(request)
@@ -38,7 +93,19 @@ async def _protect_mw(request: Request, call_next):
         r = None
     if r is not None:
         return JSONResponse(r[1], status_code=r[0])
-    return await call_next(request)
+    resp = await call_next(request)
+    try:
+        if path.startswith(_SKIP_CLEAN) or "application/json" not in resp.headers.get("content-type", "") or _is_admin(request):
+            return resp
+        body = b"".join([ch async for ch in resp.body_iterator])
+        hd = {k: v for k, v in resp.headers.items() if k.lower() not in ("content-length", "content-type")}
+        try:
+            out = json.dumps(_clean(json.loads(body)), ensure_ascii=False).encode()
+        except Exception:
+            out = body
+        return Response(out, status_code=resp.status_code, headers=hd, media_type="application/json")
+    except Exception:
+        return resp
 
 API = "https://h5-api.aoneroom.com/wefeed-h5api-bff"
 UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
@@ -307,7 +374,7 @@ async def more(id: str = "", url: str = "", title: str = "", page: int = 1, per:
     cands = []
     if id:  # verified: ranking-list/content (id = genreTopId) pages correctly for every home row
         cands.append(f"{API}/ranking-list/content?id={quote(id, safe='')}&page={page}&perPage={per}")
-    if url.startswith("/"):
+    if url.startswith("/") and not url.startswith("//") and ".." not in url and "@" not in url and re.match(r"^/(ranking-list|subject|tab-operating|operating|home)\b", url):
         cands.append(f"{API}{url}{'&' if '?' in url else '?'}page={page}&perPage={per}")
     if re.search(r"trending", title, re.I):
         cands.append(f"{API}/subject/trending?page={max(page - 1, 0)}&perPage={per}")
@@ -709,10 +776,33 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
     _ref["v"] = dom + "/"
     play = f"{dom}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se}&ep={ep}&detailPath={detail_path}"
     PH = {"User-Agent": UA, "Accept": "application/json", "Referer": ref, "X-Client-Info": XCI, "Accept-Language": "en-IN,en;q=0.9", **INH}
-    pd = (await call(play, hdr=PH)).get("data") or {}
+    pr = await call(play, hdr=PH)
+    pd = pr.get("data") or {}
     if not pd.get("hasResource"):  # retry once with a fresh token
         await ensure_token(True)
-        pd = (await call(play, hdr=PH)).get("data") or {}
+        pr = await call(play, hdr=PH)
+        pd = pr.get("data") or {}
+    used = (se, ep)
+    if not pd.get("hasResource"):
+        # Shorts (short dramas) and some series number their episodes differently (season 0 or 1, episode 0 or 1):
+        # try the other numberings before giving up
+        alts = []
+        if ep == 0:
+            alts += [(1, 1), (0, 1)]
+        if se == 0 and ep > 0:
+            alts.append((1, ep))
+        if se > 0:
+            alts.append((0, ep))
+        for se2, ep2 in alts[:3]:
+            if (se2, ep2) == (se, ep):
+                continue
+            ref2 = f"{dom}/spa/videoPlayPage/movies/{detail_path}?id={subject_id}&type=/movie/detail&detailSe={se2}&detailEp={ep2}&lang=en"
+            play2 = f"{dom}/wefeed-h5api-bff/subject/play?subjectId={subject_id}&se={se2}&ep={ep2}&detailPath={detail_path}"
+            r2 = await call(play2, hdr={**PH, "Referer": ref2})
+            d2 = r2.get("data") or {}
+            if d2.get("hasResource"):
+                pr, pd, used = r2, d2, (se2, ep2)
+                break
     src = []
     for x in pd.get("hls") or []:  # hls items can be dicts or strings
         u = x.get("url") if isinstance(x, dict) else x
@@ -725,7 +815,18 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
     src.sort(key=lambda x: -x["res"])
     st = (pd.get("streams") or pd.get("dash") or [None])[0] or {}
     cap = {"id": st.get("id"), "fmt": st.get("format") or "MP4"}
-    return {"has_resource": bool(src), "sources": src, "note": None if src else "No stream was found for this episode.", "cap": cap, "_domain": dom}
+    why = None
+    if not src:   # the real reason, shown in the player (urls / upstream host names are masked)
+        def _m(x):
+            return _UP_HOST.sub("upstream", re.sub(r"https?://\S+", "<url>", str(x)))[:160]
+        try:
+            why = "play(se=%s,ep=%s tried alts) http=%s err=%s code=%s msg=%s hasResource=%s keys=%s hls=%d streams=%d dash=%d" % (se, ep, 
+                pr.get("_http") or 200, _m(pr.get("_err") or "-"), pr.get("code", "-"), _m(pr.get("message") or pr.get("msg") or pr.get("_body") or "-"),
+                pd.get("hasResource"), ",".join(sorted(map(str, pd.keys())))[:80] or "-",
+                len(pd.get("hls") or []), len(pd.get("streams") or []), len(pd.get("dash") or []))
+        except Exception as e:
+            why = "diag failed: " + _m(e)
+    return {"has_resource": bool(src), "sources": src, "note": None if src else "No stream was found for this title.", "why": why, "cap": cap, "_domain": dom}
 
 
 @app.get("/p")
@@ -743,7 +844,7 @@ async def proxy(request: Request, u: str, t: str = ""):
         r = await c.send(c.build_request("GET", u, headers=h), stream=True)
     except Exception as e:
         await c.aclose()
-        return Response(str(e), status_code=502)
+        return Response("bad gateway", status_code=502, headers={"Cache-Control": "no-store"})
     ct = r.headers.get("content-type", "").lower()
     if "mpegurl" in ct or u.split("?")[0].endswith(".m3u8"):
         text = (await r.aread()).decode("utf-8", "ignore")
@@ -792,8 +893,8 @@ async def sub(request: Request, u: str, t: str = ""):
     async with httpx.AsyncClient(follow_redirects=True, timeout=30, **CK) as c:
         try:
             r = await c.get(u, headers={"User-Agent": UA, "Referer": _ref["v"]})
-        except Exception as e:
-            return Response(str(e), status_code=502)
+        except Exception:
+            return Response("bad gateway", status_code=502)
     t = r.content.decode("utf-8-sig", "ignore").replace("\r", "")
     if not t.lstrip().startswith("WEBVTT"):
         t = "WEBVTT\n\n" + re.sub(r"(\d\d:\d\d:\d\d),(\d{3})", r"\1.\2", t)
@@ -847,7 +948,7 @@ async def _dl_hls(u, name, check, done=None):
         try:
             segs, init, err = await _hls_plan(c, u)
         except Exception as e:
-            segs, init, err = None, None, str(e)
+            segs, init, err = None, None, "download failed"
     if err:
         return JSONResponse({"ok": False, "error": err}, status_code=400)
     if check:
@@ -904,7 +1005,7 @@ async def download(request: Request, u: str, name: str = "video", check: int = 0
         await c.aclose()
         if _done:
             _done()
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
+        return JSONResponse({"ok": False, "error": "download failed"}, status_code=502)
     ct = r.headers.get("content-type", "").lower()
     if r.status_code != 200 or "mpegurl" in ct:
         code = r.status_code
@@ -1134,7 +1235,18 @@ async def api_admin(action: str, request: Request):
             return JSONResponse({k: v for k, v in pr.items() if k != "_status"}, status_code=pr["_status"])
         return pr
     if action == "stats":
-        return await asyncio.to_thread(accounts.admin_stats)
+        try:
+            st = await asyncio.to_thread(accounts.admin_stats)
+            return {**st, "sql": accounts.sql_state()}
+        except Exception as e:
+            return {"total": 0, "users": [], "error": str(e)[:200], "sql": accounts.sql_state()}
+    if action == "db":
+        act = str(b.get("action", ""))
+        if act not in ("info", "check", "sync", "discard"):
+            return _err("bad action")
+        if act == "discard" and b.get("confirm") is not True:
+            return _err("confirm required")
+        return await asyncio.to_thread(accounts.db_admin, act)
     if action == "password":
         err = await asyncio.to_thread(accounts.admin_set_password, str(b.get("username", "")), str(b.get("password", "")))
     elif action == "delete":

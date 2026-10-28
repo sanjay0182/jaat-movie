@@ -1122,7 +1122,7 @@ function drawNav(){const cur=location.hash.replace(/^#\/?/,"").split("/")[0];
 /* ---------- cards ---------- */
 const img=(src,cls)=>{const i=h("img",{class:cls||"",src:src||"",referrerpolicy:"no-referrer",loading:"lazy",decoding:"async",alt:"",onerror:e=>e.target.style.display="none"});i.onload=()=>i.classList.add("ld");if(i.complete&&i.naturalWidth)i.classList.add("ld");return i};
 const isShort=i=>!!i&&(i.type==7||(CAT==="short"&&/^#?\/?$/.test(location.hash)&&!document.querySelector(".so")));
-const open=i=>go((isShort(i)?"#/reels/":"#/show/")+i.slug+"/"+i.subject_id);
+const open=i=>go("#/show/"+i.slug+"/"+i.subject_id);   /* shorts too: details page first, then play (the title page must be opened before a stream is allowed) */
 const bgS=u=>u?"background-image:url('"+String(u).replace(/'/g,"%27")+"')":"";
 function posterEl(i){const w=h("div",{class:"pw"}),f=()=>h("div",{class:"ph"},((i.name||"?").replace(/^[^A-Za-z0-9]+/,"")[0]||"?").toUpperCase());
   if(!i.poster_url){w.append(f());w.classList.add("ok");return w}
@@ -1401,8 +1401,9 @@ async function loadSeen(id){SEENSET=new Set();if(!ME)return;try{SEENSET=new Set(
 
 /* ---------- detail ---------- */
 async function getDet(slug){if(DET[slug])return DET[slug];const d=await api("/detail/"+slug),s=(d.data&&d.data.subject)||{},r=(d.data&&d.data.resource)||{};
-  let seasons=(r.seasons||[]).filter(x=>x.se>0).map(x=>({se:+x.se,n:+(x.maxEp||x.allEp||0)||12}));
-  const series=s.subjectType===2||seasons.length>0;if(series&&!seasons.length)seasons=[{se:1,n:12}];
+  const sh7=s.subjectType===7;   /* shorts are episodic mini-dramas: they need an episode list too */
+  let seasons=(r.seasons||[]).filter(x=>sh7?x.se>=0:x.se>0).map(x=>({se:+x.se,n:+(x.maxEp||x.allEp||0)||12}));
+  const series=s.subjectType===2||sh7||seasons.length>0;if(series&&!seasons.length)seasons=[{se:1,n:12}];
   return DET[slug]={title:cleanName(s.title||slug),tags:tagsOf(s.title),poster:(s.cover&&s.cover.url)||"",desc:s.description||"",rating:s.imdbRatingValue,year:(s.releaseDate||"").slice(0,4),genres:(s.genre||"").split(",").map(x=>x.trim()).filter(Boolean),series,seasons,dubs:((d.data&&d.data.dubs)||[]).filter(x=>x.subjectId&&x.detailPath).map(x=>({id:x.subjectId,slug:x.detailPath,lang:x.lanName||x.lanCode||"Dub"}))}}
 function epGrid(seasons,curSe,curEp,pick,slug){const pp=slug?epProgAll(slug):{};let sh=curSe||seasons[0].se;const tabs=h("div",{class:"chips"}),grid=h("div",{class:"eps"});
   const paint=()=>{tabs.replaceChildren(...(seasons.length>1?seasons.map(s=>h("button",{class:"chip","aria-pressed":String(s.se===sh),onclick:()=>{sh=s.se;paint()}},"Season "+s.se)):[]));
@@ -1590,8 +1591,8 @@ async function watch(id,slug,se,ep){
     h("div",{class:"panel slim"},d.series?h("label",{class:"chk"},auto,"Play next episode automatically"):null,h("div",{},dlb,dlMsg)),
     d.series&&d.seasons.length?h("div",{class:"epbox"},epGrid(d.seasons,se,ep,(s,e)=>go(nUrl([s,e])),slug)):null);
   const mine=()=>document.body.contains(box);
-  let data;try{data=await streamApi(id,slug,d.series?se:0,d.series?ep:0)}catch(e){if(mine()){msg.textContent=e.cancelled?"Please finish the quick check to play this video. Open the video again to retry.":(e.status===403||e.status===429)&&e.message?e.message:"Server error. Please try again shortly.";if(e.login){msg.append(" ",h("button",{class:"pri",style:"margin-top:8px",onclick:authModal},"Sign in"))}}return}
-  if(!mine())return;const src=data.sources||[];if(!src.length){msg.textContent=data.note||"No stream is available for this title.";return}
+  let data;try{data=await streamApi(id,slug,d.series?se:0,d.series?ep:0)}catch(e){if(mine()){msg.textContent=e.cancelled?"Please finish the quick check to play this video. Open the video again to retry.":(e.status===403||e.status===429)&&e.message?e.message:"Error"+(e.status?" "+e.status:"")+": "+(e.message||"server error");if(e.login){msg.append(" ",h("button",{class:"pri",style:"margin-top:8px",onclick:authModal},"Sign in"))}}return}
+  if(!mine())return;const src=data.sources||[];if(!src.length){msg.style.whiteSpace="pre-wrap";msg.textContent=(data.note||"No stream is available for this title.")+(data.why?"\n\n"+data.why:"");try{console.warn("stream",data)}catch(_){}return}
   await meReady;if(!mine())return;loadSeen(id);
   const key="pos:"+id+":"+se+":"+ep,sp=ME&&PROG.find(p=>String(p.sid)===String(id)&&+p.season===+se&&+p.episode===+ep);
   let resume=(sp&&sp.pos>10&&sp.dur-sp.pos>30?sp.pos:0)||+store.get(key)||0,cur=0,qSel=-1;
@@ -1619,7 +1620,7 @@ async function watch(id,slug,se,ep){
     video.onwaiting=()=>{if(msg.style.display!=="flex")buf.style.display="block"};
     video.onseeked=()=>{if(video.readyState>=3)buf.style.display="none"};
     video.onloadedmetadata=()=>{if(resume>10){video.currentTime=resume;resume=0}};
-    video.onerror=()=>{if(!hls&&!fb())bad()};
+    video.onerror=()=>{if(!hls&&!fb()){const ve=video.error;bad("Video error "+(ve?ve.code+(ve.message?" ("+ve.message+")":""):"?")+" · "+(x.kind||"")+" "+(x.label||""))}};
     if(x.kind==="hls"&&window.Hls&&Hls.isSupported()){let nt=0,mt=0;
       hls=new Hls({maxBufferLength:30,capLevelToPlayerSize:true,startFragPrefetch:true,manifestLoadingMaxRetry:3,fragLoadingMaxRetry:4});
       hls.loadSource(x.url);hls.attachMedia(video);
@@ -1628,7 +1629,7 @@ async function watch(id,slug,se,ep){
       hls.on(Hls.Events.ERROR,(_e,er)=>{if(!er.fatal)return;
         if(er.type===Hls.ErrorTypes.NETWORK_ERROR&&nt++<3){buf.style.display="block";setTimeout(()=>hls&&hls.startLoad(video.currentTime||-1),1500*nt)}
         else if(er.type===Hls.ErrorTypes.MEDIA_ERROR&&mt++<3)hls.recoverMediaError();
-        else if(!fb())bad("The stream failed to load. Please try again shortly.")})}
+        else if(!fb())bad("Stream failed: "+er.type+" / "+er.details+(er.response&&er.response.code?" / HTTP "+er.response.code:""))})}
     else{video.src=x.url;video.play().catch(hide)}}
   /* settings menu (gear in the player): speed, quality, source, audio, language, subtitles, screen, picture, autoplay */
   const rows=()=>{const r=[],q=hls&&hls.levels&&hls.levels.length>1;
@@ -1736,7 +1737,7 @@ async function reels(slug,id){
     else if(k==="m"||k==="M")muteBtn.click();else if(k==="Escape")closeBtn.click()};
   document.addEventListener("keydown",kd)}
 function route(){if(window.__splashHide)setTimeout(window.__splashHide,300);kill();$app.classList.remove("w");const p=location.hash.replace(/^#\/?/,"").split("/").filter(Boolean).map(decodeURIComponent);drawNav();scrollTo({top:0,left:0,behavior:"instant"});
-  if(p[0]==="reels")return reels(p[1],p[2]);if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="account")return accountPage();if(p[0]==="midnight")return midnightPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
+  if(p[0]==="reels"){try{history.replaceState(null,"","#/show/"+encodeURIComponent(p[1]||"")+"/"+encodeURIComponent(p[2]||""))}catch(e){}return show(p[1],p[2])}if(p[0]==="show")return show(p[1],p[2]);if(p[0]==="watch")return watch(p[1],p[2],p[3]||0,p[4]||0);if(p[0]==="list")return listPage();if(p[0]==="account")return accountPage();if(p[0]==="midnight")return midnightPage();if(p[0]==="all")return allPage(p[1]);if(p[0]==="browse")return browsePage(p[1]);home()}
 addEventListener("hashchange",route);route();
 </script>
 </body>

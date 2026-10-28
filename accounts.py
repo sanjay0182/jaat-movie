@@ -35,6 +35,131 @@ SCHEMA = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# SQL transport for the tgstore Cloudflare Worker  (POST <worker>/p/<KEY>/sql)
+#
+#   request : {"sql": "...", "params": [...]}  |  {"batch": [{sql, params}, ...]}  |  {"script": "..."}
+#   reply   : {"columns": [...], "rows": [[...], ...], "rowcount": n, "last_id": n}
+#             batch -> {"results": [ {columns, rows, ...}, ... ]}
+#   503 {"retry": true}  = the Worker ran out of Telegram calls for this request; send the same query again
+#   400 "database disk image is malformed" = the database file inside the Worker is damaged (needs a repair,
+#             see db_admin() below) -> retrying is useless, so we stop hammering it (circuit breaker)
+# ---------------------------------------------------------------------------
+SQL_TIMEOUT = float(os.environ.get("SQL_TIMEOUT") or 90)    # the Worker may re-run a big query for up to ~85 s
+SQL_TRIES = int(os.environ.get("SQL_TRIES") or 4)
+SQL_BASE = SQL_URL[:-4] if SQL_URL.endswith("/sql") else SQL_URL   # https://worker/p/KEY
+
+
+class SQLDown(RuntimeError):
+    """The SQL service is known to be broken right now; nothing was sent."""
+
+
+def _body(e):
+    try:
+        return e.read().decode("utf-8", "replace")[:300]
+    except Exception:
+        return ""
+
+
+def _err_text(body):
+    """{"error": "..."} -> the message only."""
+    try:
+        j = json.loads(body)
+        if isinstance(j, dict) and j.get("error"):
+            return str(j["error"])
+    except Exception:
+        pass
+    return body
+
+
+def _is_corrupt(msg):
+    m = (msg or "").lower()
+    return "malformed" in m or "not a database" in m or "database corruption" in m or "file is encrypted" in m
+
+
+# ---- circuit breaker: after a hard failure stop sending queries for a while ----
+_brk_lock = threading.Lock()
+_brk = {"fails": 0, "until": 0.0, "why": "", "corrupt": False, "since": 0.0}
+_warned = {}
+
+
+def _warn_once(key, ttl, text):
+    now = time.time()
+    if now - _warned.get(key, 0) >= ttl:
+        _warned[key] = now
+        print("[accounts] " + text, flush=True)
+
+
+def _brk_open_check():
+    if _brk["until"] > time.time():
+        raise SQLDown("SQL paused for %ds after: %s" % (_brk["until"] - time.time(), _brk["why"]))
+
+
+def _brk_fail(why, corrupt):
+    with _brk_lock:
+        _brk["fails"] += 1
+        _brk["why"] = why[:200]
+        _brk["corrupt"] = corrupt
+        if not _brk["since"]:
+            _brk["since"] = time.time()
+        # corrupt database: probe again after 1, 2, 4 ... max 10 min.  Other errors: 5 s ... max 2 min
+        base, cap = (60, 600) if corrupt else (5, 120)
+        _brk["until"] = time.time() + min(base * 2 ** min(_brk["fails"] - 1, 8), cap)
+    _warn_once("brk", 300, "SQL error: %s - pausing queries (%s)" % ("DATABASE DAMAGED (use Reload from Telegram in admin)" if corrupt else "unavailable", why[:160]))
+
+
+def _brk_ok():
+    if _brk["fails"]:
+        print("[accounts] SQL is back after %d failed tries" % _brk["fails"], flush=True)
+    with _brk_lock:
+        _brk.update(fails=0, until=0.0, why="", corrupt=False, since=0.0)
+
+
+def sql_state():
+    """For the admin panel."""
+    return {"url_set": bool(SQL_URL), "ok": _brk["fails"] == 0, "fails": _brk["fails"], "why": _brk["why"],
+            "corrupt": _brk["corrupt"], "retry_in": max(0, int(_brk["until"] - time.time())),
+            "tmdb_queued": len(globals().get("_tq", []))}
+
+
+def _http(url, payload=None, method="POST", timeout=None):
+    """One HTTP call with retries.  -> parsed JSON.  Raises RuntimeError("SQL HTTP code: msg")."""
+    data = json.dumps(payload).encode() if payload is not None else None
+    last = None
+    for attempt in range(max(1, SQL_TRIES)):
+        req = urllib.request.Request(url, data, _HDR, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout or SQL_TIMEOUT) as r:
+                return json.loads(r.read() or b"{}")
+        except urllib.error.HTTPError as e:
+            msg = _err_text(_body(e))
+            last = RuntimeError("SQL HTTP %s: %s" % (e.code, msg))
+            last.code, last.corrupt = e.code, _is_corrupt(msg)
+            if last.corrupt or e.code in (400, 401, 403, 404, 413, 501):
+                raise last from None               # retrying cannot help
+        except Exception as e:                     # timeout, DNS, connection reset ...
+            last = RuntimeError("SQL network error: %r" % (e,))
+            last.code, last.corrupt = 0, False
+        if attempt + 1 < SQL_TRIES:
+            time.sleep(min(1.5 * 2 ** attempt, 8))
+    raise last
+
+
+def _call(payload, timeout=None):
+    """Breaker + retries around one /sql request."""
+    _brk_open_check()
+    try:
+        res = _http(SQL_URL, payload, timeout=timeout)
+    except RuntimeError as e:
+        if getattr(e, "corrupt", False):
+            _brk_fail(str(e), True)
+        elif getattr(e, "code", 0) in (0, 429, 500, 502, 503, 504, 530):
+            _brk_fail(str(e), False)
+        raise
+    _brk_ok()
+    return res
+
+
 def _rows(resp):
     """Accept the common response shapes: {rows:[[..]]} or {rows:[{..}]}."""
     if isinstance(resp, dict):
@@ -45,17 +170,18 @@ def _rows(resp):
             return []
     if isinstance(resp, dict):
         resp = resp.get("rows", [])
-    return [tuple(r.values()) if isinstance(r, dict) else tuple(r) for r in resp or []]
+    out = []
+    for r in resp or []:
+        out.append(tuple(r.values()) if isinstance(r, dict) else tuple(r))
+    return out
 
 
 def q(sql, params=()):
     """Run one statement, return list of row tuples."""
     global _local
     if SQL_URL:
-        req = urllib.request.Request(SQL_URL, json.dumps({"sql": sql, "params": list(params)}).encode(),
-                                     _HDR)
-        with urllib.request.urlopen(req, timeout=15) as r:
-            return _rows(json.loads(r.read() or b"{}"))
+        _ready.wait(30)
+        return _rows(_call({"sql": sql, "params": list(params)}))
     with _lock:
         if _local is None:
             _local = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -64,19 +190,99 @@ def q(sql, params=()):
         return cur.fetchall() if cur.description else []
 
 
+def qb(stmts):
+    """Several write statements in ONE request / one transaction (all or nothing).
+    stmts = [(sql, params), ...]"""
+    global _local
+    stmts = [(s, list(p)) for s, p in stmts]
+    if not stmts:
+        return
+    if SQL_URL:
+        _ready.wait(30)
+        _call({"batch": [{"sql": s, "params": p} for s, p in stmts]})
+        return
+    with _lock:
+        if _local is None:
+            _local = sqlite3.connect(DB_PATH, check_same_thread=False)
+        try:
+            for s, p in stmts:
+                _local.execute(s, p)
+            _local.commit()
+        except Exception:
+            _local.rollback()
+            raise
+
+
 def init():
     if SQL_URL:
-        body = json.dumps({"script": ";\n".join(SCHEMA)}).encode()
-        urllib.request.urlopen(urllib.request.Request(SQL_URL, body, _HDR), timeout=15).read()
+        try:
+            _call({"script": ";\n".join(SCHEMA)})
+        except Exception as e:
+            if isinstance(e, SQLDown) or getattr(e, "corrupt", False) or getattr(e, "code", 0) != 400:
+                raise                  # service down / damaged: trying table by table would only add noise
+            print("[accounts] schema script failed (%s) - creating tables one by one" % e, flush=True)
+            bad = []
+            for st in SCHEMA:                      # one broken statement must not block the rest
+                try:
+                    _call({"sql": st, "params": []})
+                except Exception as e2:
+                    bad.append(st[:60] + " -> " + str(e2))
+            if bad:
+                raise RuntimeError("; ".join(bad))
     else:
         for s in SCHEMA:
             q(s)
+_ready = threading.Event()   # set when the first schema attempt is finished
 
+def _init_bg():
+    delay = 5
+    first = True
+    while True:
+        try:
+            init()
+            if not first:
+                print("[accounts] init ok on retry", flush=True)
+            return _ready.set()
+        except Exception as e:
+            print("[accounts] init failed: %s" % e, flush=True)
+            _ready.set()                 # do not keep requests waiting; they fail fast through the breaker
+            first = False
+            if not SQL_URL:
+                return
+            time.sleep(delay)            # the SQL service may be waking up / being repaired: keep trying
+            delay = min(delay * 2, 300)
 
-try:
-    init()
-except Exception as e:
-    print("[accounts] init failed:", e, flush=True)
+if SQL_URL:
+    # remote SQL can be slow/cold: do it in the background so the server opens its port at once;
+    # q() waits for it (max 30 s) before the first query
+    threading.Thread(target=_init_bg, daemon=True).start()
+else:
+    _init_bg()
+
+# ---- admin: look at / repair the database that lives inside the Worker --------------------------
+def db_admin(action):
+    """action: info | check | sync | discard.   Uses the same project link as SQL_URL.
+    discard = throw away the Worker's live copy and reload the last backup from Telegram (this is the usual
+    cure for 'database disk image is malformed')."""
+    if not SQL_URL:
+        return {"error": "SQL_URL is not set (local SQLite is in use)"}
+    try:
+        if action == "info":
+            return {"info": _http(SQL_BASE + "/db", None, "GET", 30), "state": sql_state()}
+        if action == "check":
+            res = _http(SQL_URL, {"sql": "PRAGMA integrity_check", "params": []}, "POST", 120)
+            return {"integrity": [r[0] for r in _rows(res)][:20], "state": sql_state()}
+        if action == "sync":
+            return {"sync": _http(SQL_BASE + "/db/sync", {}, "POST", 120)}
+        if action == "discard":
+            res = _http(SQL_BASE + "/db/discard", {}, "POST", 120)
+            with _brk_lock:
+                _brk.update(fails=0, until=0.0, why="", corrupt=False, since=0.0)   # try again at once
+            threading.Thread(target=_init_bg, daemon=True).start()
+            return {"discard": res}
+    except Exception as e:
+        return {"error": str(e)}
+    return {"error": "unknown action"}
 
 
 def _hash(pw, salt):
