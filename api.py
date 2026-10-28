@@ -784,19 +784,30 @@ def _px(u, c, sess=None, bind=False):
     return (w + l + "&q=" + protect.enc(_ref["v"])) if w else l      # referer is hidden too (q=)
 
 
-async def _dbg_probe(u):
-    """DEBUG_STREAM=1: ask the video server ourselves (same headers as /p) and write what it says into the log -> [STREAM-DBG]."""
-    try:
-        from urllib.parse import urlparse as _up, parse_qs as _pq
-        p = _up(u)
-        info = "host=%s path=%s qkeys=%s" % (p.netloc, p.path[:70], ",".join(sorted(_pq(p.query).keys())))
-        h = {"User-Agent": UA, "Referer": _ref["v"], "Origin": _ref["v"].rstrip("/"), "Accept": "*/*", "Range": "bytes=0-15"}
-        async with httpx.AsyncClient(follow_redirects=True, timeout=20, **CK) as c:
-            r = await c.get(u, headers=h)
-        print("[STREAM-DBG] %s | blitz->video-server: %s ctype=%s server=%s cf-ray=%s via-IN_PROXY=%s first-bytes=%r"
-              % (info, r.status_code, r.headers.get("content-type"), r.headers.get("server"), bool(r.headers.get("cf-ray")), bool(PROXY), r.content[:24]), flush=True)
-    except Exception as e:
-        print("[STREAM-DBG] probe failed", repr(e)[:200], flush=True)
+async def _dbg_probe(items):
+    """DEBUG_STREAM=1: ask the video server for EVERY mp4 quality (same urls the player gets), with and without Referer,
+    and log DNS ips + final host + headers -> [STREAM-DBG]."""
+    import socket
+    from urllib.parse import urlparse as _up, parse_qs as _pq
+    for label, u in items:
+        try:
+            p = _up(u)
+            try:
+                ips = sorted({a[4][0] for a in await asyncio.get_running_loop().getaddrinfo(p.hostname, 443, proto=socket.IPPROTO_TCP)})
+            except Exception as e:
+                ips = ["dns-err " + repr(e)[:40]]
+            info = "%s host=%s ips=%s qkeys=%s" % (label, p.netloc, ",".join(ips), ",".join(sorted(_pq(p.query).keys())))
+            for vname, h in (
+                ("ref+origin", {"User-Agent": UA, "Referer": _ref["v"], "Origin": _ref["v"].rstrip("/"), "Accept": "*/*", "Range": "bytes=0-15"}),
+                ("no-referer", {"User-Agent": UA, "Accept": "*/*", "Range": "bytes=0-15"}),
+            ):
+                async with httpx.AsyncClient(follow_redirects=True, timeout=20, **CK) as c:
+                    r = await c.get(u, headers=h)
+                hh = ";".join("%s=%s" % (k, r.headers.get(k)) for k in ("server", "cf-ray", "via", "x-cache", "retry-after", "content-range") if r.headers.get(k))
+                print("[STREAM-DBG] %s | %s -> %s final=%s redirects=%d ctype=%s hdr=[%s] first=%r IN_PROXY=%s"
+                      % (info, vname, r.status_code, _up(str(r.url)).netloc, len(r.history), r.headers.get("content-type"), hh, r.content[:12], bool(PROXY)), flush=True)
+        except Exception as e:
+            print("[STREAM-DBG] probe failed", label, repr(e)[:200], flush=True)
 
 
 @app.get("/api/stream/{subject_id}")
@@ -852,9 +863,9 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
             src.append({"kind": "hls" if ".m3u8" in s["url"] else "mp4", "label": f"{res}p", "res": res, "url": _px(s["url"], c, sess, bind=bool(hj) and ".m3u8" in s["url"])})
     src.sort(key=lambda x: -x["res"])
     if os.environ.get("DEBUG_STREAM") == "1":
-        _mp = next((x_.get("url") for x_ in (pd.get("streams") or []) if x_.get("url") and ".m3u8" not in x_["url"]), None)
-        if _mp:
-            asyncio.create_task(_dbg_probe(_mp))
+        _items = [("%sp" % (x_.get("resolutions") or "?"), x_["url"]) for x_ in (pd.get("streams") or []) if x_.get("url") and ".m3u8" not in x_["url"]]
+        if _items:
+            asyncio.create_task(_dbg_probe(_items))
     st = (pd.get("streams") or pd.get("dash") or [None])[0] or {}
     cap = {"id": st.get("id"), "fmt": st.get("format") or "MP4"}
     why = None
