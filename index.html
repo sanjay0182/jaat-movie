@@ -976,6 +976,10 @@ html.big .t10r{grid-auto-columns:clamp(250px,18vw,340px)}
 .hero .hban{overflow:hidden;border-radius:22px;transform:translateZ(0)}
 .hero.land .art{border-radius:0}
 .hinfo:empty{display:none}
+.dpic{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.hban.dpb{aspect-ratio:4/3}
+.hero.dh .hban.dpb{border-radius:24px}
+@media(min-width:900px){.hero.dh .hban.dpb{max-height:80vh}}
 </style>
 </head>
 <body>
@@ -1287,14 +1291,21 @@ async function show(slug,id){
   await meReady;const last=PROG.find(p=>String(p.sid)===String(id));loadSeen(id);
   const play=(se,ep)=>go("#/watch/"+id+"/"+slug+"/"+se+"/"+ep),first=d.series?d.seasons[0]:{se:0};
   const inList=()=>favs.some(f=>f.slug===slug),item={slug,subject_id:id,name:d.title,poster_url:d.poster,rating:d.rating};
-  const fb=h("button",{class:"glass",onclick:()=>{toggleFav(item);fb.textContent=inList()?"✓ In My List":"+ My List"}},inList()?"✓ In My List":"+ My List");
-  mount(h("button",{class:"back",onclick:()=>history.back()},"← Back"),
-    h("div",{class:"top"},h("div",{class:"bg",style:"background-image:url('"+d.poster+"')"}),h("div",{class:"in2"},
-      h("div",{class:"pic"},img(d.poster)),
-      h("div",{class:"dtx"},h("h1",{},d.title),h("div",{style:"color:#d5d8e2;font-size:13px"},[d.rating?"★ "+d.rating:"",d.year,d.series?d.seasons.length+" season"+(d.seasons.length>1?"s":""):"Movie"].filter(Boolean).join(" · ")),
-        h("div",{class:"row2"},h("button",{class:"pri",style:"flex:1",onclick:()=>last&&last.slug===slug?play(last.season,last.episode):play(first.se,d.series?1:0)},last&&last.slug===slug?(d.series?"▶ Continue S"+last.season+" E"+last.episode:"▶ Resume"):"▶ Watch now"),fb)))),
-    d.genres.length?h("div",{class:"chips",style:"margin-top:14px"},d.genres.map(g=>h("span",{class:"chip"},g))):null,
-    h("p",{class:"desc"},d.desc||"No description available."),
+  const favTxt=()=>inList()?"\u2713 In My List":"+ My List";
+  const fb=h("button",{class:"glass fav"+(inList()?" on":""),onclick:()=>{toggleFav(item);fb.textContent=favTxt();fb.classList.toggle("on",inList())}},favTxt());
+  /* poster card: the whole picture, no crop, rounded corners; name and details sit below it (never on top of the picture) */
+  const ban=h("div",{class:"hban dpb"}),pic=h("img",{class:"dpic",alt:"",referrerpolicy:"no-referrer",src:d.poster||""});
+  pic.onload=()=>{if(pic.naturalWidth)ban.style.aspectRatio=Math.min(2.4,Math.max(.75,pic.naturalWidth/pic.naturalHeight)).toFixed(4)};pic.onerror=()=>pic.remove();
+  ban.append(pic);if(pic.complete&&pic.naturalWidth)pic.onload();
+  const info=[d.rating&&!isNaN(+d.rating)?h("span",{class:"hr"},"\u2605 "+(+d.rating).toFixed(1)):null,h("span",{},d.series?"Series":"Movie"),d.series&&d.seasons.length>1?h("span",{},d.seasons.length+" seasons"):null,d.year?h("span",{},d.year):null,d.tags&&d.tags[0]?h("span",{},d.tags[0]):null].filter(Boolean);
+  const hd=h("p",{class:"hd"},d.desc||"No description available."),more=d.desc&&d.desc.length>130?h("button",{class:"hmore",onclick:()=>{const o=hd.classList.toggle("open");more.textContent=o?"Less":"More"}},"More"):null;
+  mount(h("button",{class:"back",onclick:()=>history.back()},"\u2190 Back"),
+    h("div",{class:"hero dh"},ban,h("div",{class:"hin"},h("div",{class:"in2"},
+      h("h1",{},d.title),
+      h("div",{class:"hinfo"},info),
+      d.genres.length?h("div",{class:"hg"},d.genres.slice(0,8).map(g=>h("span",{},g))):null,
+      hd,more,
+      h("div",{class:"row2"},h("button",{class:"pri",onclick:()=>last&&last.slug===slug?play(last.season,last.episode):play(first.se,d.series?1:0)},last&&last.slug===slug?(d.series?"\u25b6 Continue S"+last.season+" E"+last.episode:"\u25b6 Resume"):"\u25b6 Watch now"),fb)))),
     d.series?epGrid(d.seasons,0,0,play):null)}
 
 /* ---------- watch ---------- */
