@@ -887,7 +887,16 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
                         _dsrc.append({"kind": "mp4", "label": f"{_r}p", "res": _r, "url": _px(x["url"], c, sess, bind=False)})
             if _dsrc:
                 _have = {d_["res"] for d_ in _dsrc}
-                src = [x for x in src if not (x["kind"] == "mp4" and x["res"] in _have)] + _dsrc
+                src = [x for x in src if not (x["kind"] == "mp4" and x["res"] in _have)]
+                # qualities with no download link (usually 1080p) can not be fetched by the Worker (bcdnxw answers 427 to Cloudflare IPs),
+                # so they go through THIS server instead (uses this server's bandwidth, only when a viewer picks that quality).  DL_DIRECT=0 = keep them on the Worker.
+                if os.environ.get("DL_DIRECT") != "0":
+                    for s_ in (pd.get("streams") or []):
+                        _r = int(s_.get("resolutions") or 0)
+                        if s_.get("url") and ".m3u8" not in s_["url"] and _r not in _have:
+                            src = [x for x in src if not (x["kind"] == "mp4" and x["res"] == _r)]
+                            src.append({"kind": "mp4", "label": f"{_r}p", "res": _r, "url": protect.link(s_["url"], c, sess, bind_dev=False)})
+                src += _dsrc
         except Exception:
             pass
     src.sort(key=lambda x: -x["res"])
