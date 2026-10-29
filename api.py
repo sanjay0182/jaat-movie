@@ -873,6 +873,23 @@ async def stream(request: Request, subject_id: str, detail_path: str, se: int = 
             _m3 = ".m3u8" in s["url"]
             _l = _mbw({**_base, "l": "streams", "n": j, "r": res, "m": _m3}, c, sess, bind=bool(hj) and _m3) if _rs else _px(s["url"], c, sess, bind=bool(hj) and _m3)
             src.append({"kind": "hls" if _m3 else "mp4", "label": f"{res}p", "res": res, "url": _l})
+    # The "streams" links are on the bcdnxw host, which answers 427 to Cloudflare IPs (= the Worker).  The download API gives the same
+    # movie on bcdnw, which Cloudflare IPs can fetch.  With a Worker, use those links for the qualities that have one (others stay as they are).
+    # DL_LINKS=0 turns this off.
+    if _worker_bases() and os.environ.get("DL_LINKS") != "0":
+        try:
+            _dl = await call(f"{dom}/wefeed-h5api-bff/subject/download?subjectId={subject_id}&se={used[0]}&ep={used[1]}&detailPath={detail_path}", hdr={**PH, "Referer": ref})
+            _dsrc = []
+            for x in ((_dl.get("data") or {}).get("downloads") or []):
+                if isinstance(x, dict) and x.get("url"):
+                    _r = int(x.get("resolution") or 0)
+                    if _r:
+                        _dsrc.append({"kind": "mp4", "label": f"{_r}p", "res": _r, "url": _px(x["url"], c, sess, bind=False)})
+            if _dsrc:
+                _have = {d_["res"] for d_ in _dsrc}
+                src = [x for x in src if not (x["kind"] == "mp4" and x["res"] in _have)] + _dsrc
+        except Exception:
+            pass
     src.sort(key=lambda x: -x["res"])
     if os.environ.get("DEBUG_STREAM") == "1":
         _items = [("%sp" % (x_.get("resolutions") or "?"), x_["url"]) for x_ in (pd.get("streams") or []) if x_.get("url") and ".m3u8" not in x_["url"]]
